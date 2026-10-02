@@ -63,7 +63,7 @@ def test_role_play_rule_agent_is_exposed_for_demonstrations() -> None:
 def test_role_play_invokes_a_supplied_qb_opponent() -> None:
     calls: list[int] = []
 
-    def qb(state):
+    def qb(state, routes, drive_state):
         calls.append(1)
         if state.ball.status is not BallStatus.HELD:
             return None
@@ -77,6 +77,22 @@ def test_role_play_invokes_a_supplied_qb_opponent() -> None:
 
     assert calls
     assert info["outcome"] != "sack"
+
+
+def test_role_play_passes_drive_context_to_the_qb_opponent() -> None:
+    contexts = []
+
+    def qb(state, routes, drive_state):
+        contexts.append(drive_state)
+        return None
+
+    env = RolePlayEnv(opponents={"qb": qb})
+    env.reset(seed=0)
+    env.step(np.zeros(2, dtype=np.float32))
+
+    assert contexts
+    assert contexts[0].down == 1
+    assert contexts[0].distance == 10.0
 
 
 def test_role_play_ignores_an_opponent_for_the_learner() -> None:

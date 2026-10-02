@@ -103,6 +103,11 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         self.reward_config = reward_config if reward_config is not None else ReceiverRewardConfig()
         self.goal_line = float(goal_line)
         self.max_steps = int(max_steps)
+        self._drive_context = DriveState(
+            los=float(self.scenario.config.quarterback_start[0]),
+            down=1,
+            distance=10.0,
+        )
         self.action_space = spaces.Box(-1.0, 1.0, shape=(MOVE_ACTION_SIZE,), dtype=np.float32)
         self.observation_space = spaces.Box(
             -1.0,
@@ -176,7 +181,8 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
                     self.play,
                     self.routes,
                     player_id,
-                    policy,
+                    self.opponents[player_id],
+                    self._drive_context,
                 )
             else:
                 decided = policy.decide(self.play.state)
