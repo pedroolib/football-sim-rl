@@ -1,6 +1,7 @@
-"""Context-enriched role observations for Stage B (WR 28, defenders 24).
+"""Context-enriched role observations for Stage B (WR 31, defenders 24).
 
-WR layout: 19 base + route one-hot (8) + yards to the goal line.
+WR layout: 19 base + route one-hot (8) + yards to the goal line + next-waypoint
+delta (length and width) + capped distance to that waypoint.
 Defender layout: 19 base + down one-hot (3) + distance/40 + yards to the goal line.
 """
 
@@ -8,16 +9,42 @@ import numpy as np
 
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import PlayState
+from qb_sim.engine.geometry import Vector2, vec2
 from qb_sim.rules.drive import DriveState
-from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER, RouteName
+from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER, RouteName, build_route
 from qb_sim.training.role_observations import (
     defender_observation,
     receiver_observation,
 )
 
-RECEIVER_CONTEXT_OBSERVATION_SIZE = 19 + len(ROUTE_OBSERVATION_ORDER) + 1
+RECEIVER_CONTEXT_OBSERVATION_SIZE = 19 + len(ROUTE_OBSERVATION_ORDER) + 1 + 3
 DEFENDER_CONTEXT_OBSERVATION_SIZE = 19 + 3 + 2
 DISTANCE_SCALE = 40.0
+WAYPOINT_DISTANCE_SCALE = 10.0
+
+
+def _next_route_waypoint(
+    route: RouteName | None,
+    start: Vector2,
+    position: Vector2,
+    config: SimulationConfig,
+) -> Vector2 | None:
+    if route is None:
+        return None
+    built = build_route(route, start, config.field, config)
+    previous = start
+    for waypoint in built.waypoints:
+        segment = waypoint - previous
+        denominator = float(segment.dot(segment))
+        progress = (
+            0.0
+            if denominator == 0.0
+            else float((position - previous).dot(segment) / denominator)
+        )
+        if progress < 0.999:
+            return waypoint
+        previous = waypoint
+    return built.waypoints[-1]
 
 
 def receiver_context_observation(
@@ -27,11 +54,26 @@ def receiver_context_observation(
     route: RouteName | None,
     goal_line: float = 100.0,
 ) -> np.ndarray:
-    """Receiver observation plus its called route and yards to the end zone."""
+    """Receiver observation plus its route, field position, and route progress."""
     values = [float(value) for value in receiver_observation(state, player_id, config)]
     values.extend(1.0 if route is route_name else 0.0 for route_name in ROUTE_OBSERVATION_ORDER)
     position_x = float(state.player(player_id).position[0])
     values.append((float(goal_line) - position_x) / float(goal_line))
+    index = int(player_id.removeprefix("wr")) - 1
+    start = vec2(*config.receiver_starts[index])
+    waypoint = _next_route_waypoint(route, start, state.player(player_id).position, config)
+    if waypoint is None:
+        values.extend((0.0, 0.0, 0.0))
+    else:
+        delta = waypoint - state.player(player_id).position
+        values.extend(
+            (
+                float(delta[0]) / config.field.length_yards,
+                float(delta[1]) / config.field.width_yards,
+                min(float(np.linalg.norm(delta)), WAYPOINT_DISTANCE_SCALE)
+                / WAYPOINT_DISTANCE_SCALE,
+            )
+        )
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
 
 

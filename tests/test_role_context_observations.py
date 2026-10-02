@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveState
 from qb_sim.rules.play import Play
 from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER, RouteName
@@ -44,6 +45,19 @@ def test_receiver_context_encodes_yards_to_the_goal_line() -> None:
     )
 
     assert observation[27] == pytest.approx(0.6)
+
+
+def test_receiver_context_encodes_route_progress() -> None:
+    play = Play()
+    play.state.player("wr1").position = vec2(25.0, 43.0)
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.GO
+    )
+
+    assert observation[28] == pytest.approx(25.0 / 120.0)
+    assert observation[29] == pytest.approx(0.0)
+    assert observation[30] == pytest.approx(1.0)
 
 
 def test_defender_context_observation_has_the_documented_size_and_range() -> None:
