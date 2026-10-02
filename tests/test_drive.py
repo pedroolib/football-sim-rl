@@ -74,6 +74,7 @@ def test_third_loss_of_down_ends_the_drive() -> None:
 
     assert result.drive_over
     assert result.end_reason == "turnover_on_downs"
+    assert drive.state.end_reason == "turnover_on_downs"
     assert drive.state.terminated
 
 
@@ -126,6 +127,7 @@ def test_touchdown_ends_the_drive_and_scores() -> None:
     assert result.points == pytest.approx(7.0)
     assert result.end_reason == "touchdown"
     assert drive.state.points == pytest.approx(7.0)
+    assert drive.state.end_reason == "touchdown"
     assert drive.state.terminated
 
 
@@ -138,6 +140,7 @@ def test_interception_ends_the_drive() -> None:
 
     assert result.drive_over
     assert result.end_reason == "interception"
+    assert drive.state.end_reason == "interception"
 
 
 def test_timeout_without_a_throw_is_a_coverage_sack() -> None:
@@ -184,6 +187,7 @@ def test_max_plays_ends_the_drive() -> None:
 
     assert result.drive_over
     assert result.end_reason == "max_plays"
+    assert drive.state.end_reason == "max_plays"
 
 
 def test_start_play_after_termination_is_rejected() -> None:

@@ -166,6 +166,7 @@ class Drive:
             self.state.terminated = True
             end_reason = "max_plays"
 
+        self.state.end_reason = end_reason
         throw_distance = (
             float(state.ball.flight_distance) if state.throw_time is not None else None
         )
