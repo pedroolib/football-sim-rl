@@ -19,6 +19,7 @@ def test_each_outcome_maps_to_its_coefficient() -> None:
         incompletion=-0.5,
         out_of_bounds=-0.6,
         time_limit=-0.7,
+        sack=-2.5,
         yard=0.0,
     )
 
@@ -27,6 +28,7 @@ def test_each_outcome_maps_to_its_coefficient() -> None:
     assert terminal_reward(PlayOutcome.INCOMPLETE, 0.0, config) == pytest.approx(-0.5)
     assert terminal_reward(PlayOutcome.OUT_OF_BOUNDS, 0.0, config) == pytest.approx(-0.6)
     assert terminal_reward(PlayOutcome.TIME_LIMIT, 0.0, config) == pytest.approx(-0.7)
+    assert terminal_reward(PlayOutcome.SACK, 0.0, config) == pytest.approx(-2.5)
 
 
 def test_in_progress_has_no_terminal_reward() -> None:

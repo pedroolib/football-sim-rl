@@ -3,6 +3,7 @@ import pytest
 from qb_sim.agents.rule_controllers import (
     HeuristicQuarterback,
     ManCoverageController,
+    PassRushController,
     ReceiverRouteController,
 )
 from qb_sim.engine.actions import Move, Throw
@@ -55,6 +56,26 @@ def test_defender_controller_switches_to_the_carrier() -> None:
     observation = controller.observe(play.state)
 
     assert observation.target_id == "wr2"
+
+
+def test_pass_rush_controller_chases_the_quarterback() -> None:
+    play = Play()
+    controller = PassRushController("cb2", play.config.defender_speed, play.config.dt)
+
+    action = controller.decide(play.state)
+
+    assert isinstance(action, Move)
+    assert action.direction[1] > 0.9
+
+
+def test_pass_rush_controller_switches_to_the_carrier() -> None:
+    play = Play()
+    play.state.carrier_id = "wr1"
+    controller = PassRushController("cb2", play.config.defender_speed, play.config.dt)
+
+    observation = controller.observe(play.state)
+
+    assert observation.target_id == "wr1"
 
 
 def test_heuristic_quarterback_throws_to_an_open_receiver() -> None:

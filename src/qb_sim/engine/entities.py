@@ -24,6 +24,7 @@ class PlayOutcome(Enum):
     INCOMPLETE = "incomplete"
     OUT_OF_BOUNDS = "out_of_bounds"
     TIME_LIMIT = "time_limit"
+    SACK = "sack"
 
 
 class Role(Enum):

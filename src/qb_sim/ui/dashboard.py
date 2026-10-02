@@ -32,7 +32,7 @@ class TrainingDashboard:
     def __init__(
         self,
         run_dir: str | Path,
-        scenario_name: str = "default",
+        scenario_name: str = "rushed",
         panels: int = 6,
         screen_size: tuple[int, int] = DEFAULT_SCREEN_SIZE,
         reload_seconds: float = DEFAULT_RELOAD_SECONDS,
@@ -180,7 +180,7 @@ class TrainingDashboard:
         state = panel.play.state
         draw_field(field_surface, view)
         draw_routes(field_surface, panel.receiver_routes, state, view)
-        draw_players(field_surface, state, view)
+        draw_players(field_surface, state, view, frozenset(panel.play.rusher_ids))
         draw_ball(field_surface, state, view)
         label = panel.last_outcome or "in_progress"
         title = self.font.render(f"{label}  {panel.completion_pct:0.0f}%", True, (240, 240, 240))

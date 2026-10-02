@@ -2,9 +2,26 @@ import numpy as np
 import pytest
 
 from qb_sim.agents.loop import build_rule_agents, run_play, run_series
+from qb_sim.agents.rule_controllers import ManCoverageController, PassRushController
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.play import Play
-from qb_sim.rules.scenarios import DEFAULT_SCENARIO
+from qb_sim.rules.scenarios import DEFAULT_SCENARIO, RUSHED_SCENARIO
+
+
+def test_build_rule_agents_assigns_coverage_and_rushers() -> None:
+    play = Play(RUSHED_SCENARIO.config)
+
+    agents = build_rule_agents(play, RUSHED_SCENARIO.receiver_routes)
+
+    assert isinstance(agents["cb1"], ManCoverageController)
+    assert isinstance(agents["cb2"], ManCoverageController)
+    assert isinstance(agents["ru1"], PassRushController)
+
+
+def test_run_play_on_the_rushed_scenario_reaches_terminal() -> None:
+    state = run_play(RUSHED_SCENARIO, seed=0)
+
+    assert state.outcome is not PlayOutcome.IN_PROGRESS
 
 
 def test_build_rule_agents_creates_one_agent_per_player() -> None:

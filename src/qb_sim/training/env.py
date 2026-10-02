@@ -19,10 +19,10 @@ from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import DEFAULT_SCENARIO, Scenario
 from qb_sim.training.actions import ACTION_SIZE, decode_action
-from qb_sim.training.observations import OBSERVATION_SIZE, observation_from_state
+from qb_sim.training.observations import observation_from_state, observation_size
 from qb_sim.training.rewards import RewardConfig, terminal_reward
 
-__all__ = ["ACTION_SIZE", "OBSERVATION_SIZE", "QBPassingEnv"]
+__all__ = ["ACTION_SIZE", "QBPassingEnv"]
 
 
 class QBPassingEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -44,7 +44,7 @@ class QBPassingEnv(gym.Env[np.ndarray, np.ndarray]):
         self.observation_space = spaces.Box(
             -1.0,
             1.0,
-            shape=(OBSERVATION_SIZE,),
+            shape=(observation_size(self.scenario.config),),
             dtype=np.float32,
         )
         self.play = Play(self.scenario.config)
@@ -52,6 +52,11 @@ class QBPassingEnv(gym.Env[np.ndarray, np.ndarray]):
         self._build_agents()
         self._steps = 0
         self._episode_seed = self.scenario.seed
+        self.attempt_scale = 1.0
+
+    def set_attempt_scale(self, scale: float) -> None:
+        """Scale the attempt shaping, used to anneal it during training."""
+        self.attempt_scale = max(0.0, float(scale))
 
     def _build_agents(self) -> None:
         self._agents = build_rule_agents(
@@ -90,23 +95,30 @@ class QBPassingEnv(gym.Env[np.ndarray, np.ndarray]):
                 engine_actions[player_id] = agent_action
         decoded = decode_action(action, self.play.state.ball.status)
         attempted = isinstance(decoded.get("qb"), Throw)
+        elapsed_before = self.play.state.elapsed_seconds
         engine_actions.update(decoded)
 
         state = self.play.step(engine_actions)
         self._steps += 1
         terminated = state.outcome is not PlayOutcome.IN_PROGRESS
         truncated = not terminated and self._steps >= self.max_steps
-        reward = self._step_reward(state, terminated, attempted)
+        reward = self._step_reward(state, terminated, attempted, elapsed_before)
         return self._observation(), reward, terminated, truncated, self._info()
 
     def render(self) -> None:
         """No rendering in M4; visual demos belong to M5."""
         return None
 
-    def _step_reward(self, state, terminated: bool, attempted: bool) -> float:
+    def _step_reward(
+        self,
+        state,
+        terminated: bool,
+        attempted: bool,
+        elapsed_before: float,
+    ) -> float:
         reward = self.reward_config.time_penalty
-        if attempted:
-            reward += self.reward_config.attempt
+        if attempted and elapsed_before >= self.reward_config.attempt_min_seconds - 1e-9:
+            reward += self.reward_config.attempt * self.attempt_scale
         if terminated:
             yards = 0.0
             if state.carrier_id is not None:

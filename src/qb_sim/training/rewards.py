@@ -14,9 +14,11 @@ class RewardConfig:
     incompletion: float = -0.2
     out_of_bounds: float = -0.2
     time_limit: float = -0.5
+    sack: float = -1.0
     yard: float = 0.02
     time_penalty: float = -0.002
     attempt: float = 0.1
+    attempt_min_seconds: float = 0.5
 
 
 def terminal_reward(outcome: PlayOutcome, yards: float, config: RewardConfig) -> float:
@@ -31,4 +33,6 @@ def terminal_reward(outcome: PlayOutcome, yards: float, config: RewardConfig) ->
         return config.out_of_bounds
     if outcome is PlayOutcome.TIME_LIMIT:
         return config.time_limit
+    if outcome is PlayOutcome.SACK:
+        return config.sack
     return 0.0

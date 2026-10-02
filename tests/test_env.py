@@ -12,7 +12,8 @@ from qb_sim.engine.entities import BallStatus
 from qb_sim.engine.geometry import distance
 from qb_sim.rules.routes import RouteName
 from qb_sim.rules.scenarios import Scenario
-from qb_sim.training.env import ACTION_SIZE, OBSERVATION_SIZE, QBPassingEnv
+from qb_sim.training.env import ACTION_SIZE, QBPassingEnv
+from qb_sim.training.observations import observation_size
 
 ZERO_DEVIATION = replace(
     SimulationConfig(),
@@ -76,7 +77,7 @@ def test_spaces_have_the_documented_shapes() -> None:
     env = QBPassingEnv()
 
     assert env.action_space.shape == (ACTION_SIZE,)
-    assert env.observation_space.shape == (OBSERVATION_SIZE,)
+    assert env.observation_space.shape == (observation_size(SimulationConfig()),)
     assert env.action_space.dtype == np.float32
     assert env.observation_space.dtype == np.float32
 
@@ -129,13 +130,37 @@ def test_triggered_throw_launches_the_ball() -> None:
     assert info["throw_time"] == 0.0
 
 
-def test_throw_attempt_adds_shaping_to_the_step_reward() -> None:
+def test_early_throw_attempt_gets_no_shaping() -> None:
     env = QBPassingEnv()
     env.reset(seed=0)
 
     _, reward, _, _, _ = env.step(np.array([0.0, 0.0, 1.0, 0.0, 0.5, 1.0], dtype=np.float32))
 
+    assert reward == pytest.approx(-0.002)
+
+
+def test_throw_attempt_after_min_time_adds_shaping() -> None:
+    env = QBPassingEnv()
+    env.reset(seed=0)
+    for _ in range(10):
+        env.step(_noop())
+    assert env.play.state.elapsed_seconds == pytest.approx(0.5)
+
+    _, reward, _, _, _ = env.step(np.array([0.0, 0.0, 1.0, 0.0, 0.5, 1.0], dtype=np.float32))
+
     assert reward == pytest.approx(0.1 - 0.002)
+
+
+def test_attempt_scale_disables_the_shaping() -> None:
+    env = QBPassingEnv()
+    env.reset(seed=0)
+    for _ in range(10):
+        env.step(_noop())
+    env.set_attempt_scale(0.0)
+
+    _, reward, _, _, _ = env.step(np.array([0.0, 0.0, 1.0, 0.0, 0.5, 1.0], dtype=np.float32))
+
+    assert reward == pytest.approx(-0.002)
 
 
 def test_noop_step_only_pays_the_time_penalty() -> None:

@@ -20,7 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="QB Lab live training dashboard")
     parser.add_argument("--run-name", default="ppo_default_v2")
     parser.add_argument("--output-dir", default="runs")
-    parser.add_argument("--scenario", default="default", choices=sorted(SCENARIOS))
+    parser.add_argument("--scenario", default="rushed", choices=sorted(SCENARIOS))
     parser.add_argument("--panels", type=int, default=6)
     parser.add_argument("--train", action="store_true", help="Launch training as a subprocess")
     parser.add_argument("--timesteps", type=int, default=200_000)

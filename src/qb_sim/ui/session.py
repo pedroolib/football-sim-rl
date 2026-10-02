@@ -74,6 +74,11 @@ class PlaySession:
         """Receiver routes in roster order, for visualization."""
         return self._receiver_routes
 
+    @property
+    def rusher_ids(self) -> frozenset[str]:
+        """Players assigned to rush the quarterback."""
+        return frozenset(self.play.rusher_ids)
+
     def handle_frame(self, frame: FrameInput) -> None:
         """Process one frame of raw input without advancing the simulation."""
         if "r" in frame.pressed:

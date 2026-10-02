@@ -23,6 +23,7 @@ def summarize(results: Sequence[PlayState], line_of_scrimmage: float) -> dict[st
         "incompletion_pct": 100.0 * _count(results, PlayOutcome.INCOMPLETE) / total,
         "out_of_bounds_pct": 100.0 * _count(results, PlayOutcome.OUT_OF_BOUNDS) / total,
         "time_limit_pct": 100.0 * _count(results, PlayOutcome.TIME_LIMIT) / total,
+        "sack_pct": 100.0 * _count(results, PlayOutcome.SACK) / total,
         "yards_per_attempt": sum(yards) / total,
         "yards_per_completion": (sum(completion_yards) / len(completed)) if completed else 0.0,
         "average_time_to_throw": (sum(throw_times) / len(throw_times)) if throw_times else 0.0,

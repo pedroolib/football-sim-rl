@@ -12,6 +12,7 @@ pygame = pytest.importorskip("pygame")
 
 from qb_sim.engine.entities import BallStatus  # noqa: E402
 from qb_sim.rules.play import Play  # noqa: E402
+from qb_sim.rules.scenarios import RUSHED_SCENARIO  # noqa: E402
 from qb_sim.ui.pygame_app import PygameApp  # noqa: E402
 from qb_sim.ui.session import FrameInput, PlaySession  # noqa: E402
 
@@ -142,6 +143,28 @@ def test_app_can_run_with_a_policy_quarterback(dummy_video) -> None:
         app.draw_frame()
 
         assert play.state.ball.status is BallStatus.IN_FLIGHT
+    finally:
+        app.close()
+
+
+def test_build_session_uses_the_selected_scenario() -> None:
+    from qb_sim.ui.pygame_app import build_session
+
+    rushed = build_session("rushed")
+    default = build_session("default")
+
+    assert rushed.play.rusher_ids == ("ru1",)
+    assert rushed.play.config.defender_starts == RUSHED_SCENARIO.config.defender_starts
+    assert default.play.rusher_ids == ()
+
+
+def test_app_can_render_the_rushed_scenario(dummy_video) -> None:
+    scenario = RUSHED_SCENARIO
+    session = PlaySession(Play(scenario.config), routes=scenario.receiver_routes)
+    app = PygameApp(session)
+    try:
+        app.step(FrameInput())
+        app.draw_frame()
     finally:
         app.close()
 

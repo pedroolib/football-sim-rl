@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -22,6 +24,8 @@ def test_short_training_saves_model_config_and_checkpoints(tmp_path) -> None:
         checkpoint_freq=256,
         eval_freq=256,
         eval_episodes=2,
+        attempt_decay_steps=128,
+        imitation_episodes=0,
         output_dir=str(tmp_path),
         device="cpu",
     )
@@ -39,6 +43,80 @@ def test_short_training_saves_model_config_and_checkpoints(tmp_path) -> None:
     assert np.asarray(action).shape == (6,)
 
 
+def test_attempt_shaping_is_annealed_to_zero(tmp_path) -> None:
+    config = PPOConfig(
+        run_name="anneal-run",
+        total_timesteps=256,
+        seed=0,
+        n_steps=64,
+        batch_size=32,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=64,
+        imitation_episodes=0,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    model, _ = train(config)
+
+    assert model.get_env().envs[0].unwrapped.attempt_scale == 0.0
+
+
+def test_training_warm_starts_from_demonstrations(tmp_path) -> None:
+    config = PPOConfig(
+        run_name="bc-run",
+        scenario="rushed",
+        total_timesteps=64,
+        seed=0,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=64,
+        imitation_episodes=1,
+        imitation_epochs=2,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    train(config)
+
+    metadata = json.loads((tmp_path / "bc-run" / "config.json").read_text())
+    assert metadata["imitation_samples"] > 0
+    assert metadata["imitation_loss"] is not None
+
+
+def test_ppo_action_policy_checks_scenario_compatibility(tmp_path) -> None:
+    config = PPOConfig(
+        run_name="compat-run",
+        scenario="rushed",
+        total_timesteps=64,
+        seed=0,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=1,
+        imitation_episodes=0,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+    _, final_path = train(config)
+
+    from qb_sim.training.evaluation import PPOActionPolicy
+
+    policy = PPOActionPolicy(final_path, device="cpu")
+    assert policy.supports_scenario("rushed")
+    assert not policy.supports_scenario("default")
+
+
 def test_ppo_evaluation_is_reproducible(tmp_path) -> None:
     config = PPOConfig(
         run_name="eval-run",
@@ -50,6 +128,7 @@ def test_ppo_evaluation_is_reproducible(tmp_path) -> None:
         checkpoint_freq=1000,
         eval_freq=1000,
         eval_episodes=1,
+        imitation_episodes=0,
         output_dir=str(tmp_path),
         device="cpu",
     )

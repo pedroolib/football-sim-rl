@@ -70,7 +70,7 @@ class PygameApp:
         aim = self.session.aim_preview
         draw_field(self.screen, self.view)
         draw_routes(self.screen, self.session.routes, state, self.view)
-        draw_players(self.screen, state, self.view)
+        draw_players(self.screen, state, self.view, self.session.rusher_ids)
         if aim is not None:
             peak = arc_peak(
                 distance(aim.origin, aim.target),
@@ -153,26 +153,29 @@ class PygameApp:
         pygame.quit()
 
 
+def build_session(scenario_name: str = "rushed", model_path: str | None = None) -> PlaySession:
+    """Build a session for the chosen scenario, optionally with a PPO QB."""
+    scenario = get_scenario(scenario_name)
+    policy = None
+    if model_path is not None:
+        from qb_sim.training.policy import load_policy
+
+        policy = load_policy(model_path, scenario_name)
+    return PlaySession(
+        Play(scenario.config),
+        routes=scenario.receiver_routes,
+        quarterback_policy=policy,
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for ``python -m qb_sim.ui.pygame_app``."""
     parser = argparse.ArgumentParser(description="QB Lab visualizer")
     parser.add_argument("--model", default=None, help="Path to a trained PPO model (.zip)")
-    parser.add_argument("--scenario", default="default", choices=sorted(SCENARIOS))
+    parser.add_argument("--scenario", default="rushed", choices=sorted(SCENARIOS))
     args = parser.parse_args(argv)
 
-    if args.model:
-        from qb_sim.training.policy import load_policy
-
-        scenario = get_scenario(args.scenario)
-        policy = load_policy(args.model, args.scenario)
-        session = PlaySession(
-            Play(scenario.config),
-            routes=scenario.receiver_routes,
-            quarterback_policy=policy,
-        )
-    else:
-        session = PlaySession()
-    PygameApp(session).run()
+    PygameApp(build_session(args.scenario, args.model)).run()
 
 
 if __name__ == "__main__":

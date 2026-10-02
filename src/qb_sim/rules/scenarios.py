@@ -35,9 +35,20 @@ DEEP_SCENARIO = Scenario(
     SimulationConfig(),
     (RouteName.GO, RouteName.POST),
 )
+RUSHED_SCENARIO = Scenario(
+    "rushed",
+    replace(SimulationConfig(), rusher_starts=((30.0, 29.0),)),
+    (RouteName.POST, RouteName.SLANT),
+)
 
 SCENARIOS: dict[str, Scenario] = {
-    scenario.name: scenario for scenario in (DEFAULT_SCENARIO, PRESSURED_SCENARIO, DEEP_SCENARIO)
+    scenario.name: scenario
+    for scenario in (
+        DEFAULT_SCENARIO,
+        PRESSURED_SCENARIO,
+        DEEP_SCENARIO,
+        RUSHED_SCENARIO,
+    )
 }
 
 

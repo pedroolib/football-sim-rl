@@ -13,9 +13,10 @@ from qb_sim.engine.entities import BallStatus
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.actions import ACTION_SIZE, encode_engine_action
 from qb_sim.training.env import QBPassingEnv
+from qb_sim.training.observations import observation_size
 
 ActionFn = Callable[[QBPassingEnv, np.ndarray], np.ndarray]
-_OUTCOMES = ("completed", "interception", "incomplete", "out_of_bounds", "time_limit")
+_OUTCOMES = ("completed", "interception", "incomplete", "out_of_bounds", "time_limit", "sack")
 
 
 class RandomPolicy:
@@ -48,6 +49,11 @@ class PPOActionPolicy:
         from stable_baselines3 import PPO
 
         self._model = PPO.load(str(model_path), device=device)
+        self.observation_size = int(self._model.observation_space.shape[0])
+
+    def supports_scenario(self, scenario_name: str) -> bool:
+        """Whether the model's observation matches the scenario roster."""
+        return self.observation_size == observation_size(get_scenario(scenario_name).config)
 
     def __call__(self, env: QBPassingEnv, observation: np.ndarray) -> np.ndarray:
         action, _ = self._model.predict(observation, deterministic=True)

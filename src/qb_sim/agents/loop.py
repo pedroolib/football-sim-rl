@@ -6,6 +6,7 @@ from qb_sim.agents.base import BaseAgent
 from qb_sim.agents.rule_controllers import (
     HeuristicQuarterback,
     ManCoverageController,
+    PassRushController,
     ReceiverRouteController,
 )
 from qb_sim.config import SimulationConfig
@@ -23,7 +24,10 @@ def build_rule_agents(
     config: SimulationConfig | None = None,
     include_quarterback: bool = True,
 ) -> dict[str, BaseAgent]:
-    """Create one rule-based agent per player in roster order."""
+    """Create one rule-based agent per player in roster order.
+
+    Cornerbacks cover receivers in order; roster rushers rush the quarterback.
+    """
     settings = config if config is not None else play.config
     agents: dict[str, BaseAgent] = {}
     if include_quarterback:
@@ -37,8 +41,18 @@ def build_rule_agents(
             settings.receiver_speed,
             settings.dt,
         )
-    for index, player_id in enumerate(play.defender_ids):
-        assignment = play.receiver_ids[index % len(play.receiver_ids)]
+    rusher_ids = set(play.rusher_ids)
+    coverage_index = 0
+    for player_id in play.defender_ids:
+        if player_id in rusher_ids:
+            agents[player_id] = PassRushController(
+                player_id,
+                settings.defender_speed,
+                settings.dt,
+            )
+            continue
+        assignment = play.receiver_ids[coverage_index % len(play.receiver_ids)]
+        coverage_index += 1
         agents[player_id] = ManCoverageController(
             player_id,
             settings.defender_speed,

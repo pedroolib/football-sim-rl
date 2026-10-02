@@ -48,7 +48,9 @@ ruff format --check .
 - `metrics.summarize(results, line_of_scrimmage)` aggregates completion/interception/incompletion percentages, yards per attempt and per completion, average time to throw, and average duration.
 - `python scripts/rule_baseline_report.py` prints reproducible baseline metrics per scenario; `python scripts/accuracy_report.py` covers throw-accuracy calibration.
 
-Play rules: after a catch the ball becomes `CARRIED`, the receiver runs downfield, and the play ends when any defender touches the carrier (`tackle_radius`), the carrier leaves the field, or time expires (still `COMPLETED`). An interception ends the play immediately. There is no automatic receiver selection or catch assistance.
+Play rules: after a catch the ball becomes `CARRIED`, the receiver runs downfield, and the play ends when any defender touches the carrier (`tackle_radius`), the carrier leaves the field, or time expires (still `COMPLETED`). An interception ends the play immediately, and a defender touching the quarterback while he holds the ball ends the play with `SACK`. There is no automatic receiver selection or catch assistance.
+
+The `rushed` scenario fields two cornerbacks (`cb1` covers `wr1`, `cb2` covers `wr2`) plus a dedicated pass rusher (`ru1`) that hunts the quarterback, creating sack pressure and forcing the QB to decide when to throw.
 
 Pass flight is a parabolic arc: `BallState.height` follows `4 · peak · p · (1 − p)` with `peak = min(max_arc_height, distance · arc_ratio)`. A player can only touch the ball when its height is at most `catch_height`, so well-thrown passes can clear defenders; interceptions happen near the launch or landing points or on flat throws.
 
@@ -69,10 +71,43 @@ import qb_sim.training  # noqa: F401 - registers QBPassing-v0
 env = gym.make("QBPassing-v0")
 ```
 
-- **Observation** (27 floats in `[-1, 1]`): QB position/velocity, ball status one-hot + height, relative position and velocity of each receiver and defender, pressure, and remaining time.
+- **Observation** (floats in `[-1, 1]`): QB position/velocity, ball status one-hot + height, relative position and velocity of each receiver and defender, pressure, and remaining time. Its size depends on the roster: 27 for `default` (2 receivers + 2 defenders) and 31 for `rushed` (2 receivers + 2 corners + 1 rusher). A trained model is tied to the roster it was trained with.
 - **Action** (6 floats in `[-1, 1]`): `[move_x, move_y, aim_x, aim_y, power_raw, throw_trigger]`; a positive trigger throws toward `(aim_x, aim_y)` with `power = (power_raw + 1) / 2`, otherwise the QB moves. Human and learned policies share the same engine actions.
 - **Rewards** (`training.rewards.RewardConfig`): completion plus yardage, penalties for interception/incompletion/out-of-bounds/time limit, and a small per-tick time penalty; every coefficient is configurable.
 - **Episodes**: terminate when the play outcome is terminal, truncate at `max_steps`; `reset(seed=...)` is reproducible and `info` exposes the episode seed, outcome, pressure, throw time, and carrier.
+
+## PPO training (M5)
+
+Training is headless, lives in `qb_sim.training`, and never loads Pygame. Install the RL extras and run:
+
+```bash
+python -m pip install -e ".[dev,viz,rl]"
+python -m qb_sim.training.train --timesteps 200000 --seed 0 --scenario rushed --run-name ppo_default_v7
+```
+
+The pipeline:
+
+- **Behavior-cloning warm start** (`training.imitation`): the rule QB plays `imitation_episodes` seeded episodes in the scenario; its `(observation, action)` pairs train an MLP matching the PPO policy network (throw samples are upweighted) and the weights are loaded into the actor. This solves the hard-exploration problem of precise aiming.
+- **Conservative PPO fine-tuning**: small learning rate (`2e-5`), low clip range, `target_kl` early stopping, no entropy bonus, and small `log_std_init`, so the fine-tuning improves the imitated policy instead of destroying it. The attempt shaping is annealed to zero by default (`attempt_decay_steps`).
+- **Artifacts**: `runs/<run-name>/` contains `final_model.zip`, `config.json` (hyperparameters, scenario, seed, imitation stats, device), `checkpoints/`, `best/`, and CSV learning curves under `logs/`. Resume with `--resume runs/<run>/checkpoints/<file>.zip`.
+
+Evaluation uses a fixed seed set separate from training:
+
+```bash
+python scripts/evaluate_ppo.py --episodes 100 --seed-start 10000 \
+    --ppo rules=runs/ppo_default_v7/final_model.zip --output runs/evaluation.json
+python scripts/analyze_ppo.py --model runs/ppo_default_v7/final_model.zip --scenario rushed
+```
+
+## Training dashboard (video)
+
+A live Pygame dashboard shows six parallel plays whose QB loads the newest checkpoint every few seconds, plus timesteps, `ep_rew_mean`, live completion rate, and the learning curve:
+
+```bash
+python scripts/train_dashboard.py --train --run-name ppo_default_v7 --scenario rushed
+```
+
+Controls: `P` pause, `1/2/3` speed, `R` restart panels, `Esc` exit. Record the window with OBS or any screen recorder. To inspect a finished run instead, omit `--train`; to show the rule QB for contrast, point it at a run directory without checkpoints. Pass rushers are highlighted in orange in every panel.
 
 ## Controls (visualizer)
 
@@ -110,7 +145,9 @@ print(session.play.state.outcome, session.play.state.ball.position)
 ## Visualizer
 
 ```bash
-python -m qb_sim.ui.pygame_app
+python -m qb_sim.ui.pygame_app                      # rushed by default: an orange pass rusher hunts the QB
+python -m qb_sim.ui.pygame_app --scenario default   # no rusher
+python -m qb_sim.ui.pygame_app --model runs/ppo_default_v7/final_model.zip --scenario rushed
 ```
 
-The simulator itself never depends on a display. Gymnasium integration, agent training, and multi-agent play belong to later milestones.
+The pass rusher is drawn in orange with a dark outline; the other defenders are red. `--scenario` selects any registered scenario. The simulator itself never depends on a display. Multi-agent play belongs to a later milestone.

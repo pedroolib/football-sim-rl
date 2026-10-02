@@ -14,14 +14,29 @@ from pathlib import Path
 
 import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from qb_sim.rules.scenarios import SCENARIOS, get_scenario
 from qb_sim.training.env import QBPassingEnv
+from qb_sim.training.imitation import collect_demonstrations, warm_start_policy
 from qb_sim.training.ppo_config import PPOConfig
+
+
+class AttemptAnnealingCallback(BaseCallback):
+    """Linearly decay the attempt shaping to zero over ``decay_steps``."""
+
+    def __init__(self, decay_steps: int, verbose: int = 0) -> None:
+        super().__init__(verbose)
+        self._decay_steps = max(int(decay_steps), 1)
+
+    def _on_step(self) -> bool:
+        scale = max(0.0, 1.0 - self.num_timesteps / self._decay_steps)
+        for env in self.model.get_env().envs:
+            env.unwrapped.set_attempt_scale(scale)
+        return True
 
 
 def resolve_device(device: str) -> str:
@@ -48,6 +63,7 @@ def build_model(config: PPOConfig, env) -> PPO:
         gamma=config.gamma,
         gae_lambda=config.gae_lambda,
         clip_range=config.clip_range,
+        target_kl=config.target_kl,
         ent_coef=config.ent_coef,
         vf_coef=config.vf_coef,
         max_grad_norm=config.max_grad_norm,
@@ -75,7 +91,27 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
         model = build_model(config, env)
     model.set_logger(configure(str(run_dir / "logs"), ["stdout", "csv"]))
 
+    imitation_loss: float | None = None
+    imitation_samples = 0
+    if resume is None and config.imitation_episodes > 0:
+        dataset = collect_demonstrations(
+            get_scenario(config.scenario),
+            episodes=config.imitation_episodes,
+            seed_start=config.seed,
+        )
+        imitation_samples = len(dataset.observations)
+        imitation_loss = warm_start_policy(
+            model,
+            dataset,
+            hidden=tuple(config.pi_layers),
+            epochs=config.imitation_epochs,
+            learning_rate=config.imitation_learning_rate,
+            seed=config.seed,
+        )
+        print(f"imitation warm start: {imitation_samples} muestras, loss {imitation_loss:.5f}")
+
     callbacks = [
+        AttemptAnnealingCallback(config.attempt_decay_steps),
         CheckpointCallback(
             save_freq=max(config.checkpoint_freq // config.n_envs, 1),
             save_path=str(run_dir / "checkpoints"),
@@ -103,6 +139,8 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     metadata["device"] = resolve_device(config.device)
     metadata["torch"] = torch.__version__
     metadata["resumed_from"] = resume
+    metadata["imitation_samples"] = imitation_samples
+    metadata["imitation_loss"] = imitation_loss
     (run_dir / "config.json").write_text(
         json.dumps(metadata, indent=2) + "\n",
         encoding="utf-8",
@@ -124,6 +162,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--checkpoint-freq", type=int, default=defaults.checkpoint_freq)
     parser.add_argument("--eval-freq", type=int, default=defaults.eval_freq)
     parser.add_argument("--eval-episodes", type=int, default=defaults.eval_episodes)
+    parser.add_argument("--attempt-decay-steps", type=int, default=defaults.attempt_decay_steps)
+    parser.add_argument("--imitation-episodes", type=int, default=defaults.imitation_episodes)
+    parser.add_argument("--imitation-epochs", type=int, default=defaults.imitation_epochs)
     parser.add_argument("--n-envs", type=int, default=defaults.n_envs)
     parser.add_argument("--device", default=defaults.device)
     parser.add_argument("--resume", default=None)
@@ -138,6 +179,9 @@ def main(argv: list[str] | None = None) -> None:
         checkpoint_freq=args.checkpoint_freq,
         eval_freq=args.eval_freq,
         eval_episodes=args.eval_episodes,
+        attempt_decay_steps=args.attempt_decay_steps,
+        imitation_episodes=args.imitation_episodes,
+        imitation_epochs=args.imitation_epochs,
         output_dir=args.output_dir,
         device=args.device,
     )

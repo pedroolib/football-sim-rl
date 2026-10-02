@@ -7,8 +7,9 @@ import pytest
 
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import BallStatus, PlayOutcome
-from qb_sim.engine.geometry import vec2
+from qb_sim.engine.geometry import distance, vec2
 from qb_sim.rules.play import Play
+from qb_sim.rules.scenarios import RUSHED_SCENARIO
 from qb_sim.ui.session import FrameInput, PlaySession
 
 ZERO_DEVIATION = replace(
@@ -143,6 +144,25 @@ def test_pause_and_restart_apply_without_a_tick() -> None:
     session.step_frame(_frame())
     session.handle_frame(_frame(pressed=frozenset({"r"})))
     assert session.play.state.elapsed_seconds == 0.0
+
+
+def test_session_with_the_rushed_scenario_uses_a_pass_rusher() -> None:
+    scenario = RUSHED_SCENARIO
+    session = PlaySession(Play(scenario.config), routes=scenario.receiver_routes)
+    initial_distance = distance(
+        session.play.state.player("ru1").position,
+        session.play.state.player("qb").position,
+    )
+
+    for _ in range(20):
+        session.tick()
+
+    final_distance = distance(
+        session.play.state.player("ru1").position,
+        session.play.state.player("qb").position,
+    )
+    assert session.rusher_ids == frozenset({"ru1"})
+    assert final_distance < initial_distance - 2.0
 
 
 def test_pause_stops_the_clock_and_restart_resets() -> None:

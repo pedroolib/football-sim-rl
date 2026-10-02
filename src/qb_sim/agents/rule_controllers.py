@@ -131,6 +131,52 @@ class ManCoverageController(BaseAgent):
         return Move(direction=offset / length)
 
 
+class PassRushController(BaseAgent):
+    """Rush the quarterback and try to sack him before the throw."""
+
+    role = Role.DEFENDER
+
+    def __init__(self, player_id: str, speed: float, time_step: float) -> None:
+        super().__init__(player_id)
+        self._speed = speed
+        self._time_step = time_step
+
+    def observe(self, state: PlayState) -> DefenderObservation:
+        me = state.player(self.player_id)
+        target_id = state.carrier_id if state.carrier_id is not None else "qb"
+        target_player = state.player(target_id)
+        return DefenderObservation(
+            player_id=self.player_id,
+            role=self.role,
+            position=me.position.copy(),
+            velocity=me.velocity.copy(),
+            target_id=target_id,
+            target=PlayerView(
+                target_player.player_id,
+                target_player.position.copy(),
+                target_player.velocity.copy(),
+            ),
+            ball_status=state.ball.status,
+            ball_position=state.ball.position.copy(),
+            ball_height=state.ball.height,
+            carrier_id=state.carrier_id,
+            time_step=self._time_step,
+            elapsed_seconds=state.elapsed_seconds,
+        )
+
+    def act(self, observation: DefenderObservation) -> Move | None:
+        if observation.target is None:
+            return None
+        offset = observation.target.position - observation.position
+        length = float(np.linalg.norm(offset))
+        if length == 0.0:
+            return None
+        max_distance = self._speed * observation.time_step
+        if length <= max_distance:
+            return Move(direction=offset / max_distance)
+        return Move(direction=offset / length)
+
+
 class HeuristicQuarterback(BaseAgent):
     """Throw to the openest receiver, scramble under pressure, or wait."""
 

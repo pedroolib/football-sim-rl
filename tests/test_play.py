@@ -74,6 +74,25 @@ def test_reset_builds_two_receivers_and_two_defenders_with_ids() -> None:
     assert state.player("cb2").role is Role.DEFENDER
 
 
+def test_rushed_roster_adds_a_dedicated_rusher() -> None:
+    config = replace(ZERO_DEVIATION, rusher_starts=((30.0, 29.0),))
+
+    play = Play(config)
+    state = play.reset()
+
+    assert [player.player_id for player in state.players] == [
+        "qb",
+        "wr1",
+        "wr2",
+        "cb1",
+        "cb2",
+        "ru1",
+    ]
+    assert play.rusher_ids == ("ru1",)
+    assert play.defender_ids == ("cb1", "cb2", "ru1")
+    assert state.player("ru1").role is Role.DEFENDER
+
+
 def test_each_receiver_runs_its_own_route() -> None:
     play = Play()
     agents = _make_agents(play)
@@ -478,6 +497,16 @@ def test_pass_leaving_field_is_out_of_bounds() -> None:
     state = _run_until_terminal(play, agents)
 
     assert state.outcome is PlayOutcome.OUT_OF_BOUNDS
+
+
+def test_defender_touching_the_quarterback_sacks_him() -> None:
+    config = replace(ZERO_DEVIATION, defender_starts=((20.5, 26.65), (0.0, 0.0)))
+    play = Play(config)
+
+    state = play.step()
+
+    assert state.outcome is PlayOutcome.SACK
+    assert state.ball.status is BallStatus.DEAD
 
 
 def test_play_ends_at_configured_time_limit() -> None:

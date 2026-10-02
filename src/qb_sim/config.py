@@ -15,6 +15,7 @@ class SimulationConfig:
     quarterback_start: tuple[float, float] = (20.0, 26.65)
     receiver_starts: tuple[tuple[float, float], ...] = ((20.0, 43.0), (20.0, 10.0))
     defender_starts: tuple[tuple[float, float], ...] = ((18.0, 43.0), (18.0, 10.0))
+    rusher_starts: tuple[tuple[float, float], ...] = ()
     receiver_speed: float = 7.0
     defender_speed: float = 6.5
     quarterback_speed: float = 6.5
@@ -99,6 +100,7 @@ class SimulationConfig:
             ("quarterback_start", (self.quarterback_start,)),
             ("receiver_starts", self.receiver_starts),
             ("defender_starts", self.defender_starts),
+            ("rusher_starts", self.rusher_starts),
         )
         for group_name, starts in start_groups:
             for position in starts:

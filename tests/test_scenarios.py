@@ -5,6 +5,7 @@ from qb_sim.rules.routes import RouteName
 from qb_sim.rules.scenarios import (
     DEFAULT_SCENARIO,
     PRESSURED_SCENARIO,
+    RUSHED_SCENARIO,
     Scenario,
     get_scenario,
 )
@@ -23,6 +24,12 @@ def test_pressured_scenario_starts_a_defender_near_the_quarterback() -> None:
         + (defender_start[1] - quarterback_start[1]) ** 2
     ) ** 0.5
     assert distance < PRESSURED_SCENARIO.config.pressure_radius
+
+
+def test_rushed_scenario_adds_a_pass_rusher_to_the_roster() -> None:
+    assert RUSHED_SCENARIO.config.rusher_starts == ((30.0, 29.0),)
+    assert len(RUSHED_SCENARIO.config.defender_starts) == 2
+    assert get_scenario("rushed") is RUSHED_SCENARIO
 
 
 def test_get_scenario_returns_named_scenarios() -> None:

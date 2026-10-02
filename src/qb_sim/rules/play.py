@@ -67,6 +67,8 @@ class Play:
             players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.RECEIVER, f"wr{index}"))
         for index, start in enumerate(self.config.defender_starts, start=1):
             players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.DEFENDER, f"cb{index}"))
+        for index, start in enumerate(self.config.rusher_starts, start=1):
+            players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.DEFENDER, f"ru{index}"))
 
         self.state = PlayState(
             players=players,
@@ -75,9 +77,10 @@ class Play:
         self._receiver_ids = [
             f"wr{index}" for index in range(1, len(self.config.receiver_starts) + 1)
         ]
+        self._rusher_ids = [f"ru{index}" for index in range(1, len(self.config.rusher_starts) + 1)]
         self._defender_ids = [
             f"cb{index}" for index in range(1, len(self.config.defender_starts) + 1)
-        ]
+        ] + self._rusher_ids
         self.state.pressure = self.pressure_on_quarterback()
         return self.state
 
@@ -90,6 +93,11 @@ class Play:
     def defender_ids(self) -> tuple[str, ...]:
         """Stable defender identifiers in roster order."""
         return tuple(self._defender_ids)
+
+    @property
+    def rusher_ids(self) -> tuple[str, ...]:
+        """Defenders assigned to rush the quarterback by the roster."""
+        return tuple(self._rusher_ids)
 
     def pressure_on_quarterback(self) -> float:
         """Return 0..1 pressure from the nearest defender within ``pressure_radius``."""
@@ -185,6 +193,12 @@ class Play:
         }
         self._apply_actions(actions or {}, dt)
 
+        if self.state.ball.status is BallStatus.HELD and self._quarterback_sacked():
+            self.state.pressure = self.pressure_on_quarterback()
+            self.state.elapsed_seconds += dt
+            self._finish(PlayOutcome.SACK)
+            return self.state
+
         tick_fraction = 1.0
         if self.state.carrier_id is not None:
             carrier = self.state.player(self.state.carrier_id)
@@ -235,6 +249,14 @@ class Play:
         if role is Role.DEFENDER:
             return self.config.defender_speed
         raise ValueError(f"unsupported role: {role!r}")
+
+    def _quarterback_sacked(self) -> bool:
+        quarterback = self.state.player(_QB_ID)
+        return any(
+            distance(self.state.player(defender_id).position, quarterback.position)
+            <= self.config.tackle_radius
+            for defender_id in self._defender_ids
+        )
 
     def _resolve_carrier_events(self) -> None:
         carrier = self.state.player(self.state.carrier_id)

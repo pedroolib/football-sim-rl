@@ -18,6 +18,7 @@ from qb_sim.training.evaluation import (
     RuleQuarterbackPolicy,
     evaluate,
 )
+from qb_sim.training.observations import observation_size
 
 DEFAULT_EPISODES = 100
 DEFAULT_SEED_START = 10_000
@@ -63,6 +64,13 @@ def main() -> None:
             "rules": evaluate(RuleQuarterbackPolicy(scenario.config), scenario_name, seeds),
         }
         for label, policy in ppo_policies:
+            if not policy.supports_scenario(scenario_name):
+                print(
+                    f"{label}: omitido en {scenario_name} "
+                    f"(observación incompatible: {policy.observation_size} vs "
+                    f"{observation_size(scenario.config)})"
+                )
+                continue
             scenario_results[label] = evaluate(policy, scenario_name, seeds)
         results[scenario_name] = scenario_results
 

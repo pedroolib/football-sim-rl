@@ -5,13 +5,28 @@ import numpy as np
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import BallStatus, PlayState, Role
 
-OBSERVATION_SIZE = 27
 _BALL_STATUS_ORDER = (
     BallStatus.HELD,
     BallStatus.IN_FLIGHT,
     BallStatus.CARRIED,
     BallStatus.DEAD,
 )
+
+
+def observation_size(config: SimulationConfig) -> int:
+    """Number of floats in the observation for a given roster."""
+    return (
+        4
+        + len(_BALL_STATUS_ORDER)
+        + 1
+        + 4 * len(config.receiver_starts)
+        + 4 * (len(config.defender_starts) + len(config.rusher_starts))
+        + 1
+        + 1
+    )
+
+
+OBSERVATION_SIZE = observation_size(SimulationConfig())
 
 
 def observation_from_state(state: PlayState, config: SimulationConfig) -> np.ndarray:

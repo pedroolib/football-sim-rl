@@ -20,6 +20,7 @@ PLAYER_COLORS = {
     Role.RECEIVER: (80, 160, 255),
     Role.DEFENDER: (225, 80, 80),
 }
+RUSHER_COLOR = (255, 145, 40)
 BALL_COLOR = (150, 75, 35)
 SHADOW_COLOR = (22, 72, 40)
 PLAYER_RADIUS = 8
@@ -109,11 +110,23 @@ def draw_players(
     surface: pygame.Surface,
     state: PlayState,
     view: ViewTransform,
+    rusher_ids: frozenset[str] = frozenset(),
 ) -> None:
-    """Draw every player as a circle colored by role."""
+    """Draw every player as a circle colored by role; rushers stand out."""
     for player in state.players:
-        color = PLAYER_COLORS.get(player.role, (200, 200, 200))
+        if player.player_id in rusher_ids:
+            color = RUSHER_COLOR
+        else:
+            color = PLAYER_COLORS.get(player.role, (200, 200, 200))
         pygame.draw.circle(surface, color, _screen_int(view, player.position), PLAYER_RADIUS)
+        if player.player_id in rusher_ids:
+            pygame.draw.circle(
+                surface,
+                (120, 60, 10),
+                _screen_int(view, player.position),
+                PLAYER_RADIUS,
+                2,
+            )
 
 
 def _power_color(power: float) -> tuple[int, int, int]:
@@ -159,9 +172,21 @@ def draw_ball_guide(surface: pygame.Surface, state: PlayState, view: ViewTransfo
 
 
 def draw_ball(surface: pygame.Surface, state: PlayState, view: ViewTransform) -> None:
-    """Draw the football and its ground shadow when it is airborne."""
-    pygame.draw.circle(surface, SHADOW_COLOR, _screen_int(view, state.ball.position), BALL_RADIUS)
-    pygame.draw.circle(surface, BALL_COLOR, _pixel(_ball_screen(state, view)), BALL_RADIUS)
+    """Draw the football, offset when held, with a shadow when airborne."""
+    ball_screen = _ball_screen(state, view)
+    if state.ball.height <= 0.0 and state.ball.status in (
+        BallStatus.HELD,
+        BallStatus.CARRIED,
+    ):
+        ball_screen = vec2(ball_screen[0] + PLAYER_RADIUS, ball_screen[1] - 2)
+    else:
+        pygame.draw.circle(
+            surface,
+            SHADOW_COLOR,
+            _screen_int(view, state.ball.position),
+            BALL_RADIUS,
+        )
+    pygame.draw.circle(surface, BALL_COLOR, _pixel(ball_screen), BALL_RADIUS)
 
 
 def draw_hud(
