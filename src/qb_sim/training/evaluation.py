@@ -12,6 +12,7 @@ from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import BallStatus
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.actions import ACTION_SIZE, encode_engine_action
+from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
 from qb_sim.training.env import QBPassingEnv
 from qb_sim.training.observations import OBSERVATION_SIZE
 
@@ -54,6 +55,10 @@ class PPOActionPolicy:
     def supports_layout(self) -> bool:
         """Whether the model was trained with the current observation layout."""
         return self.observation_size == OBSERVATION_SIZE
+
+    def supports_drive_layout(self) -> bool:
+        """Whether the model was trained with the drive observation layout."""
+        return self.observation_size == DRIVE_OBSERVATION_SIZE
 
     def __call__(self, env: QBPassingEnv, observation: np.ndarray) -> np.ndarray:
         action, _ = self._model.predict(observation, deterministic=True)
