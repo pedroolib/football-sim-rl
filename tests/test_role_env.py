@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 from gymnasium.utils.env_checker import check_env
 
+from qb_sim.engine.actions import Throw
 from qb_sim.engine.entities import BallStatus
 from qb_sim.training.role_context_observations import RECEIVER_CONTEXT_OBSERVATION_SIZE
 from qb_sim.training.role_env import RolePlayEnv
@@ -55,3 +57,50 @@ def test_role_play_rule_agent_is_exposed_for_demonstrations() -> None:
     agent = env.rule_agent("wr2")
 
     assert agent.player_id == "wr2"
+
+
+def test_role_play_invokes_a_supplied_qb_opponent() -> None:
+    calls: list[int] = []
+
+    def qb(state):
+        calls.append(1)
+        if state.ball.status is not BallStatus.HELD:
+            return None
+        return Throw(direction=np.array([1.0, 0.0]), power=1.0)
+
+    env = RolePlayEnv(opponents={"qb": qb})
+    env.reset(seed=0)
+    terminated = truncated = False
+    while not (terminated or truncated):
+        _, _, terminated, truncated, info = env.step(_noop())
+
+    assert calls
+    assert info["outcome"] != "sack"
+
+
+def test_role_play_ignores_an_opponent_for_the_learner() -> None:
+    calls: list[int] = []
+
+    def learner_opponent(state, route):
+        calls.append(1)
+        return None
+
+    env = RolePlayEnv(learner_id="wr1", opponents={"wr1": learner_opponent})
+    env.reset(seed=0)
+    env.step(np.array([1.0, 0.0], dtype=np.float32))
+
+    assert not calls
+
+
+def test_role_play_trajectory_is_deterministic() -> None:
+    first = RolePlayEnv()
+    second = RolePlayEnv()
+    first_observation, _ = first.reset(seed=11)
+    second_observation, _ = second.reset(seed=11)
+    actions = [np.array([1.0, 0.0], dtype=np.float32)] * 5
+    for action in actions:
+        first_observation, first_reward, first_term, first_trunc, _ = first.step(action)
+        second_observation, second_reward, second_term, second_trunc, _ = second.step(action)
+        np.testing.assert_allclose(first_observation, second_observation)
+        assert first_reward == pytest.approx(second_reward)
+        assert (first_term, first_trunc) == (second_term, second_trunc)

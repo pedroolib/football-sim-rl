@@ -9,6 +9,7 @@ from gymnasium import spaces
 
 from qb_sim.agents.base import BaseAgent
 from qb_sim.agents.loop import build_rule_agents
+from qb_sim.agents.rule_controllers import HeuristicQuarterback
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.drive import DriveState
@@ -90,6 +91,8 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         self.scenario = scenario if scenario is not None else STAGE_B_SCENARIO
         self.learner_id = learner_id
         self.opponents = dict(opponents or {})
+        if "qb" not in self.opponents:
+            self.opponents["qb"] = HeuristicQuarterback("qb", self.scenario.config)
         self.reward_config = reward_config if reward_config is not None else ReceiverRewardConfig()
         self.goal_line = float(goal_line)
         self.max_steps = int(max_steps)
@@ -204,9 +207,11 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def _learner_separation(self, state) -> float:
         learner = state.player(self.learner_id)
+        rusher_ids = set(self.play.rusher_ids)
         defenders = [
             state.player(player_id).position
             for player_id in self.play.defender_ids
+            if player_id not in rusher_ids
         ]
         if not defenders:
             return 0.0
