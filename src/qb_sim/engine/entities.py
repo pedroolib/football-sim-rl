@@ -25,6 +25,7 @@ class PlayOutcome(Enum):
     OUT_OF_BOUNDS = "out_of_bounds"
     TIME_LIMIT = "time_limit"
     SACK = "sack"
+    TOUCHDOWN = "touchdown"
 
 
 class Role(Enum):

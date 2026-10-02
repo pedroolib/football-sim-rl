@@ -45,21 +45,56 @@ class Play:
         self,
         config: SimulationConfig | None = None,
         seed: int = 0,
+        line_of_scrimmage: float | None = None,
+        goal_line: float | None = None,
     ) -> None:
         self.config = config if config is not None else SimulationConfig()
         self.seed = int(seed)
         self._rng = np.random.default_rng(self.seed)
+        self._line_of_scrimmage = (
+            float(line_of_scrimmage)
+            if line_of_scrimmage is not None
+            else float(self.config.quarterback_start[0])
+        )
+        self._shift = self._line_of_scrimmage - float(self.config.quarterback_start[0])
+        if goal_line is not None and not 0.0 < float(goal_line) < self.config.field.length_yards:
+            raise ValueError("goal_line must be inside the field")
+        self._goal_line = None if goal_line is None else float(goal_line)
+        self._validate_formation_shift()
         self._receiver_ids: list[str] = []
         self._defender_ids: list[str] = []
+        self._rusher_ids: list[str] = []
         self.state: PlayState
         self.reset()
+
+    @property
+    def line_of_scrimmage(self) -> float:
+        """Effective line of scrimmage, in yards."""
+        return self._line_of_scrimmage
+
+    def _validate_formation_shift(self) -> None:
+        if self._shift == 0.0:
+            return
+        starts = (
+            (self.config.quarterback_start,)
+            + tuple(self.config.receiver_starts)
+            + tuple(self.config.defender_starts)
+            + tuple(self.config.rusher_starts)
+        )
+        for start in starts:
+            if not self.config.field.contains(vec2(start[0] + self._shift, start[1])):
+                raise ValueError("line_of_scrimmage shifts players outside the field")
 
     def reset(self, seed: int | None = None) -> PlayState:
         """Restore the roster; re-seed the generator only when ``seed`` is given."""
         if seed is not None:
             self.seed = int(seed)
             self._rng = np.random.default_rng(self.seed)
-        quarterback_position = vec2(*self.config.quarterback_start)
+
+        def shifted(start: tuple[float, float]) -> Vector2:
+            return vec2(start[0] + self._shift, start[1])
+
+        quarterback_position = shifted(self.config.quarterback_start)
         players = [
             PlayerState(
                 quarterback_position.copy(),
@@ -72,7 +107,7 @@ class Play:
         for index, start in enumerate(self.config.receiver_starts, start=1):
             players.append(
                 PlayerState(
-                    vec2(*start),
+                    shifted(start),
                     vec2(0.0, 0.0),
                     Role.RECEIVER,
                     f"wr{index}",
@@ -82,7 +117,7 @@ class Play:
         for index, start in enumerate(self.config.defender_starts, start=1):
             players.append(
                 PlayerState(
-                    vec2(*start),
+                    shifted(start),
                     vec2(0.0, 0.0),
                     Role.DEFENDER,
                     f"cb{index}",
@@ -92,7 +127,7 @@ class Play:
         for index, start in enumerate(self.config.rusher_starts, start=1):
             players.append(
                 PlayerState(
-                    vec2(*start),
+                    shifted(start),
                     vec2(0.0, 0.0),
                     Role.DEFENDER,
                     f"ru{index}",
@@ -223,6 +258,16 @@ class Play:
         }
         self._apply_actions(actions or {}, dt)
 
+        if (
+            self._goal_line is not None
+            and self.state.ball.status is BallStatus.HELD
+            and self._touchdown_reached(self.state.player(_QB_ID))
+        ):
+            self.state.pressure = self.pressure_on_quarterback()
+            self.state.elapsed_seconds += dt
+            self._finish(PlayOutcome.TOUCHDOWN)
+            return self.state
+
         if self.state.ball.status is BallStatus.HELD and self._quarterback_sacked():
             self.state.pressure = self.pressure_on_quarterback()
             self.state.elapsed_seconds += dt
@@ -288,8 +333,14 @@ class Play:
             for defender_id in self._defender_ids
         )
 
+    def _touchdown_reached(self, player: PlayerState) -> bool:
+        return self._goal_line is not None and float(player.position[0]) >= self._goal_line
+
     def _resolve_carrier_events(self) -> None:
         carrier = self.state.player(self.state.carrier_id)
+        if self._touchdown_reached(carrier):
+            self._finish(PlayOutcome.TOUCHDOWN)
+            return
         for defender_id in self._defender_ids:
             defender = self.state.player(defender_id)
             if distance(defender.position, carrier.position) <= self.config.tackle_radius:
@@ -366,6 +417,8 @@ class Play:
             player.position = previous + (player.position - previous) * event.tick_fraction
         if event.outcome is PlayOutcome.COMPLETED:
             self._complete_catch(event.player_id)
+            if self._touchdown_reached(self.state.player(event.player_id)):
+                self._finish(PlayOutcome.TOUCHDOWN)
         else:
             self._finish(event.outcome)
         return event.tick_fraction

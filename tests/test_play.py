@@ -530,3 +530,81 @@ def test_terminal_state_does_not_advance_again() -> None:
 
     assert result is terminal
     assert result.player("wr1").position.tolist() == pytest.approx(receiver_position.tolist())
+
+
+def test_line_of_scrimmage_shifts_the_formation() -> None:
+    play = Play(line_of_scrimmage=45.0)
+
+    state = play.reset()
+
+    assert play.line_of_scrimmage == pytest.approx(45.0)
+    assert state.player("qb").position.tolist() == pytest.approx([45.0, 26.65])
+    assert state.player("wr1").position.tolist() == pytest.approx([45.0, 43.0])
+    assert state.player("cb2").position.tolist() == pytest.approx([43.0, 10.0])
+
+
+def test_line_of_scrimmage_outside_the_field_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        Play(line_of_scrimmage=-1.0)
+    with pytest.raises(ValueError):
+        Play(goal_line=130.0)
+
+
+def test_qb_scramble_crossing_the_goal_line_scores() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(99.9, 26.65),
+        defender_starts=((100.5, 26.65), (0.0, 0.0)),
+    )
+    play = Play(config, goal_line=100.0)
+
+    state = play.step({"qb": Move(direction=vec2(1.0, 0.0))})
+
+    assert state.outcome is PlayOutcome.TOUCHDOWN
+
+
+def test_carrier_crossing_the_goal_line_scores() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(84.0, 26.65),
+        receiver_starts=((95.0, 26.65), (119.0, 0.0)),
+        defender_starts=((0.0, 0.0), (0.0, 0.0)),
+    )
+    play = Play(config, goal_line=100.0)
+    agents = _make_agents(play)
+    _step(play, agents)
+    play.throw_with_lead(0.7)
+
+    state = _run_until_terminal(play, agents)
+
+    assert state.outcome is PlayOutcome.TOUCHDOWN
+
+
+def test_catch_beyond_the_goal_line_scores_immediately() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(80.0, 26.65),
+        receiver_starts=((100.5, 26.65), (0.0, 0.0)),
+        defender_starts=((0.0, 0.0), (0.0, 0.0)),
+    )
+    play = Play(config, goal_line=100.0)
+    agents = _make_agents(play)
+    _step(play, agents)
+    play.throw_with_lead(1.2)
+
+    state = _run_until_terminal(play, agents)
+
+    assert state.outcome is PlayOutcome.TOUCHDOWN
+
+
+def test_touchdown_has_priority_over_a_simultaneous_sack() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(99.9, 26.65),
+        defender_starts=((100.2, 26.65), (0.0, 0.0)),
+    )
+    play = Play(config, goal_line=100.0)
+
+    state = play.step({"qb": Move(direction=vec2(1.0, 0.0))})
+
+    assert state.outcome is PlayOutcome.TOUCHDOWN
