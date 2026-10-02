@@ -4,6 +4,7 @@ from gymnasium.utils.env_checker import check_env
 
 from qb_sim.engine.actions import Throw
 from qb_sim.engine.entities import BallStatus
+from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.training.rewards import DefenderRewardConfig, defender_potential
 from qb_sim.training.role_context_observations import RECEIVER_CONTEXT_OBSERVATION_SIZE
@@ -51,6 +52,30 @@ def test_role_play_scores_the_catch_bonus_for_the_learner() -> None:
         total += reward
 
     assert total >= 1.2  # completion (+1.0) plus the +0.3 catch bonus
+
+
+def test_role_play_reports_yards_after_catch() -> None:
+    env = RolePlayEnv(learner_id="wr1")
+    env.reset(seed=0)
+    state = env.play.state
+    catch_x = 32.0
+    state.player("wr1").position = vec2(catch_x, 43.0)
+    state.carrier_id = "wr1"
+    state.ball.status = BallStatus.CARRIED
+    state.carry_started_at = state.elapsed_seconds
+    _, _, terminated, truncated, info = env.step(_noop())
+    assert not (terminated or truncated)
+    assert info["yards_after_catch"] == pytest.approx(0.0)
+    expected_yards = catch_x - env.scenario.config.quarterback_start[0]
+
+    _, _, terminated, truncated, info = env.step(np.array([1.0, 0.0], dtype=np.float32))
+
+    assert not (terminated or truncated)
+    assert info["yards"] > expected_yards
+    assert info["yards_after_catch"] == pytest.approx(
+        info["yards"] - expected_yards
+    )
+    assert info["yards_after_catch"] > 0.0
 
 
 def test_role_play_rule_agent_is_exposed_for_demonstrations() -> None:

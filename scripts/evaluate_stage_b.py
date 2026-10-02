@@ -4,11 +4,14 @@ Examples:
 
     python scripts/evaluate_stage_b.py wr --episodes 100 \
         --ppo wr1=runs/ppo_wr_v1/final_model.zip \
-        --opponent qb=runs/ppo_rushed_v10/final_model.zip
+        --opponent qb=runs/ppo_drive_qb_v11/final_model.zip
     python scripts/evaluate_stage_b.py composition --episodes 100 \
         --ppo qb=runs/ppo_drive_qb_v12/final_model.zip \
         --opponent wr1=runs/ppo_wr_v1/final_model.zip \
         --opponent cb1=runs/ppo_cb_v1/final_model.zip
+
+The ``cb`` and ``ru`` modes require ``--opponent qb=PATH``: without a
+quarterback opponent the QB stays passive and the metrics are meaningless.
 """
 
 import argparse
@@ -68,6 +71,7 @@ def main() -> None:
     seeds = range(args.seed_start, args.seed_start + args.episodes)
     scenario = get_scenario(args.scenario)
     env_kind = ENV_KINDS[args.mode]
+    ppo_pairs = _pairs(args.ppo, parser)
     opponent_pairs = _pairs(args.opponent, parser)
     allowed = ALLOWED_OPPONENTS[args.mode]
     for player_id, _ in opponent_pairs:
@@ -76,6 +80,8 @@ def main() -> None:
                 f"{args.mode} mode cannot use opponent {player_id!r}; "
                 f"allowed ids: {', '.join(allowed)}"
             )
+    if args.mode in {"cb", "ru"} and "qb" not in dict(opponent_pairs):
+        parser.error(f"{args.mode} mode requires a quarterback opponent: --opponent qb=PATH")
     opponents = build_opponents(env_kind, args.scenario, opponent_pairs)
     results: dict[str, dict] = {}
 
@@ -83,7 +89,7 @@ def main() -> None:
         results["rules"] = evaluate_composition(
             RuleQuarterbackPolicy(scenario.config), opponents, args.scenario, seeds
         )
-        for label, path in _pairs(args.ppo, parser):
+        for label, path in ppo_pairs:
             results[label] = evaluate_composition(
                 PPOActionPolicy(path), opponents, args.scenario, seeds
             )
@@ -92,7 +98,7 @@ def main() -> None:
         env_kwargs = {"learner_id": learner, "opponents": opponents}
         evaluate = evaluate_role_play if args.mode == "wr" else evaluate_role_drive
         results["rules"] = evaluate(_rule_role_action, args.scenario, seeds, **env_kwargs)
-        for label, path in _pairs(args.ppo, parser):
+        for label, path in ppo_pairs:
             results[label] = evaluate(PPOActionPolicy(path), args.scenario, seeds, **env_kwargs)
 
     for name, summary in results.items():
@@ -102,7 +108,17 @@ def main() -> None:
 
     output = Path(args.output or f"runs/stage_b_evaluation_{args.mode}.json")
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    metadata = {
+        "mode": args.mode,
+        "scenario": args.scenario,
+        "seed_start": args.seed_start,
+        "episodes": args.episodes,
+        "ppo": {label: path for label, path in ppo_pairs},
+        "opponents": {player_id: path for player_id, path in opponent_pairs},
+        "output": str(output),
+    }
+    payload = {"metadata": metadata, "results": results}
+    output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"\nsaved {output}")
 
 

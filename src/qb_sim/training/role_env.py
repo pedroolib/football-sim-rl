@@ -32,7 +32,6 @@ from qb_sim.training.role_context_observations import (
 )
 
 MOVE_ACTION_SIZE = 2
-DISTANCE_TO_TARGET = 3.0
 
 
 def defender_target(play: Play, defender_id: str) -> str | None:
@@ -129,6 +128,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         self._episode_seed = self.scenario.seed
         self._separation_at_throw: float | None = None
         self._separation_at_catch: float | None = None
+        self._catch_x: float | None = None
         self._setup_episode()
 
     def reset(
@@ -158,6 +158,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         self._steps = 0
         self._separation_at_throw = None
         self._separation_at_catch = None
+        self._catch_x = None
 
     def rule_agent(self, player_id: str) -> BaseAgent:
         """Rule controller for a player, used to collect demonstrations."""
@@ -206,24 +207,29 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         truncated = not terminated and self._steps >= self.max_steps
         reward = 0.0
         if terminated:
-            yards = 0.0
-            if state.carrier_id is not None:
-                yards = float(
-                    state.player(state.carrier_id).position[0]
-                    - self.scenario.config.quarterback_start[0]
-                )
             caught = state.carrier_id == self.learner_id
-            reward = receiver_result_reward(state.outcome, yards, caught, self.reward_config)
+            reward = receiver_result_reward(
+                state.outcome, self._carrier_yards(state), caught, self.reward_config
+            )
         return self.observation(), float(reward), terminated, truncated, self._info()
 
     def render(self) -> None:
         return None
+
+    def _carrier_yards(self, state) -> float:
+        if state.carrier_id is None:
+            return 0.0
+        return float(
+            state.player(state.carrier_id).position[0]
+            - self.scenario.config.quarterback_start[0]
+        )
 
     def _track_diagnostics(self, state) -> None:
         if self._separation_at_throw is None and state.throw_time is not None:
             self._separation_at_throw = self._learner_separation(state)
         if self._separation_at_catch is None and state.carrier_id == self.learner_id:
             self._separation_at_catch = self._learner_separation(state)
+            self._catch_x = float(state.player(self.learner_id).position[0])
 
     def _learner_separation(self, state) -> float:
         learner = state.player(self.learner_id)
@@ -241,18 +247,19 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def _info(self) -> dict[str, Any]:
         state = self.play.state
+        caught = state.carrier_id == self.learner_id
+        yards = self._carrier_yards(state)
+        yards_after_catch = 0.0
+        if caught and self._catch_x is not None:
+            yards_after_catch = yards - (
+                self._catch_x - self.scenario.config.quarterback_start[0]
+            )
         return {
             "episode_seed": self._episode_seed,
             "outcome": state.outcome.value,
-            "yards": (
-                float(
-                    state.player(state.carrier_id).position[0]
-                    - self.scenario.config.quarterback_start[0]
-                )
-                if state.carrier_id is not None
-                else 0.0
-            ),
-            "caught": state.carrier_id == self.learner_id,
+            "yards": yards,
+            "yards_after_catch": yards_after_catch,
+            "caught": caught,
             "separation_at_throw": self._separation_at_throw,
             "separation_at_catch": self._separation_at_catch,
             "throw_time": state.throw_time,

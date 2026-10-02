@@ -22,8 +22,8 @@ def _ci(count: int, total: int) -> list[float]:
     return [100.0 * low, 100.0 * high]
 
 
-def _mean(values: list[float]) -> float:
-    return float(np.mean(values)) if values else 0.0
+def _mean(values: list[float]) -> float | None:
+    return float(np.mean(values)) if values else None
 
 
 def run_role_play_episode(env: RolePlayEnv, action_fn, seed: int) -> dict[str, Any]:
@@ -54,14 +54,25 @@ def summarize_role_play(results: list[dict[str, Any]]) -> dict:
         for result in results
         if result["separation_at_throw"] is not None
     ]
+    separations_at_catch = [
+        float(result["separation_at_catch"])
+        for result in results
+        if result["separation_at_catch"] is not None
+    ]
+    yards_after_catch = [
+        float(result["yards_after_catch"]) for result in results if result["caught"]
+    ]
     return {
         "episodes": float(total),
         "catch_pct": _pct(catches, total),
         "catch_ci": _ci(catches, total),
         "touchdown_pct": _pct(touchdowns, total),
         "touchdown_ci": _ci(touchdowns, total),
+        "touchdown_per_catch_pct": _pct(touchdowns, catches),
         "yards_per_play": _mean([float(result["yards"]) for result in results]),
+        "mean_yards_after_catch": _mean(yards_after_catch),
         "mean_separation_at_throw": _mean(separations),
+        "mean_separation_at_catch": _mean(separations_at_catch),
     }
 
 
@@ -107,6 +118,11 @@ def summarize_role_drive(results: list[dict[str, Any]]) -> dict:
         for play in plays
         if play["separation_allowed_throw"] is not None
     ]
+    separations_at_catch = [
+        float(play["separation_allowed_catch"])
+        for play in plays
+        if play["separation_allowed_catch"] is not None
+    ]
     touchdowns = sum(result["outcome"] == "touchdown" for result in results)
     return {
         "episodes": float(total),
@@ -121,6 +137,7 @@ def summarize_role_drive(results: list[dict[str, Any]]) -> dict:
         "mean_pressure_at_throw": _mean(pressures),
         "mean_arrival_time": _mean(arrivals),
         "mean_separation_allowed_throw": _mean(separations),
+        "mean_separation_allowed_catch": _mean(separations_at_catch),
         "plays_per_drive": len(plays) / total,
     }
 

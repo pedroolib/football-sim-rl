@@ -8,6 +8,7 @@ from qb_sim.training.role_evaluation import (
     run_composition_episode,
     summarize_composition,
     summarize_role_drive,
+    summarize_role_play,
 )
 
 
@@ -48,9 +49,62 @@ def test_summarize_composition_computes_team_metrics() -> None:
     assert summary["points_per_drive"] == pytest.approx(3.5)
     assert summary["third_down_conversion_pct"] == pytest.approx(50.0)
     assert summary["mean_separation_at_throw"] == pytest.approx(2.5)
+    assert summary["mean_pressure_at_throw"] == pytest.approx(0.4)
+    assert summary["mean_arrival_time"] == pytest.approx(1.6)
     assert len(summary["turnover_on_downs_ci"]) == 2
     assert summary["turnover_on_downs_ci"][0] <= 50.0 <= summary["turnover_on_downs_ci"][1]
     assert len(summary["sack_ci"]) == 2
+
+
+def test_summarize_role_play_computes_receiver_metrics() -> None:
+    results = [
+        {
+            "outcome": "touchdown",
+            "caught": True,
+            "yards": 40.0,
+            "yards_after_catch": 15.0,
+            "separation_at_throw": 3.0,
+            "separation_at_catch": 1.0,
+        },
+        {
+            "outcome": "incomplete",
+            "caught": False,
+            "yards": 0.0,
+            "yards_after_catch": 0.0,
+            "separation_at_throw": None,
+            "separation_at_catch": None,
+        },
+    ]
+
+    summary = summarize_role_play(results)
+
+    assert summary["episodes"] == 2.0
+    assert summary["catch_pct"] == pytest.approx(50.0)
+    assert summary["touchdown_per_catch_pct"] == pytest.approx(100.0)
+    assert summary["yards_per_play"] == pytest.approx(20.0)
+    assert summary["mean_yards_after_catch"] == pytest.approx(15.0)
+    assert summary["mean_separation_at_throw"] == pytest.approx(3.0)
+    assert summary["mean_separation_at_catch"] == pytest.approx(1.0)
+
+
+def test_summarize_role_play_reports_none_for_missing_samples() -> None:
+    results = [
+        {
+            "outcome": "incomplete",
+            "caught": False,
+            "yards": 0.0,
+            "yards_after_catch": 0.0,
+            "separation_at_throw": None,
+            "separation_at_catch": None,
+        },
+    ]
+
+    summary = summarize_role_play(results)
+
+    assert summary["touchdown_per_catch_pct"] == pytest.approx(0.0)
+    assert summary["mean_yards_after_catch"] is None
+    assert summary["mean_separation_at_throw"] is None
+    assert summary["mean_separation_at_catch"] is None
 
 
 def test_summarize_role_drive_reports_touchdown_interval() -> None:
@@ -60,6 +114,7 @@ def test_summarize_role_drive_reports_touchdown_interval() -> None:
             "pressure_at_throw": None,
             "arrival_time": 1.2,
             "separation_allowed_throw": None,
+            "separation_allowed_catch": None,
         },
     ]
     results = [{"outcome": "touchdown", "points": 7.0, "plays": plays}]
@@ -69,6 +124,10 @@ def test_summarize_role_drive_reports_touchdown_interval() -> None:
     assert summary["touchdown_pct_allowed"] == pytest.approx(100.0)
     assert summary["touchdown_pct_allowed_ci"][0] <= 100.0
     assert summary["touchdown_pct_allowed_ci"][1] == pytest.approx(100.0)
+    assert summary["mean_pressure_at_throw"] is None
+    assert summary["mean_arrival_time"] == pytest.approx(1.2)
+    assert summary["mean_separation_allowed_throw"] is None
+    assert summary["mean_separation_allowed_catch"] is None
 
 
 def test_summarize_role_drive_reports_completion_and_interception_rates() -> None:
@@ -78,12 +137,14 @@ def test_summarize_role_drive_reports_completion_and_interception_rates() -> Non
             "pressure_at_throw": 0.3,
             "arrival_time": None,
             "separation_allowed_throw": 1.5,
+            "separation_allowed_catch": 2.0,
         },
         {
             "outcome": "interception",
             "pressure_at_throw": None,
             "arrival_time": None,
             "separation_allowed_throw": None,
+            "separation_allowed_catch": None,
         },
     ]
     results = [{"outcome": "interception", "points": 0.0, "plays": plays}]
@@ -94,6 +155,9 @@ def test_summarize_role_drive_reports_completion_and_interception_rates() -> Non
     assert summary["completion_allowed_ci"][0] <= 50.0 <= summary["completion_allowed_ci"][1]
     assert summary["interception_forced_pct"] == pytest.approx(50.0)
     assert summary["interception_forced_ci"][0] <= 50.0 <= summary["interception_forced_ci"][1]
+    assert summary["mean_separation_allowed_throw"] == pytest.approx(1.5)
+    assert summary["mean_separation_allowed_catch"] == pytest.approx(2.0)
+    assert summary["mean_arrival_time"] is None
 
 
 def test_run_composition_episode_records_pre_step_pressure_at_throw() -> None:
