@@ -19,10 +19,10 @@ from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import DEFAULT_SCENARIO, Scenario
 from qb_sim.training.actions import ACTION_SIZE, decode_action
-from qb_sim.training.observations import observation_from_state, observation_size
+from qb_sim.training.observations import OBSERVATION_SIZE, observation_from_state
 from qb_sim.training.rewards import RewardConfig, terminal_reward
 
-__all__ = ["ACTION_SIZE", "QBPassingEnv"]
+__all__ = ["ACTION_SIZE", "OBSERVATION_SIZE", "QBPassingEnv"]
 
 
 class QBPassingEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -44,7 +44,7 @@ class QBPassingEnv(gym.Env[np.ndarray, np.ndarray]):
         self.observation_space = spaces.Box(
             -1.0,
             1.0,
-            shape=(observation_size(self.scenario.config),),
+            shape=(OBSERVATION_SIZE,),
             dtype=np.float32,
         )
         self.play = Play(self.scenario.config)

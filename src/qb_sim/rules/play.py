@@ -61,14 +61,44 @@ class Play:
             self._rng = np.random.default_rng(self.seed)
         quarterback_position = vec2(*self.config.quarterback_start)
         players = [
-            PlayerState(quarterback_position.copy(), vec2(0.0, 0.0), Role.QUARTERBACK, _QB_ID)
+            PlayerState(
+                quarterback_position.copy(),
+                vec2(0.0, 0.0),
+                Role.QUARTERBACK,
+                _QB_ID,
+                self.config.quarterback_speed,
+            )
         ]
         for index, start in enumerate(self.config.receiver_starts, start=1):
-            players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.RECEIVER, f"wr{index}"))
+            players.append(
+                PlayerState(
+                    vec2(*start),
+                    vec2(0.0, 0.0),
+                    Role.RECEIVER,
+                    f"wr{index}",
+                    self.config.receiver_speed,
+                )
+            )
         for index, start in enumerate(self.config.defender_starts, start=1):
-            players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.DEFENDER, f"cb{index}"))
+            players.append(
+                PlayerState(
+                    vec2(*start),
+                    vec2(0.0, 0.0),
+                    Role.DEFENDER,
+                    f"cb{index}",
+                    self.config.defender_speed,
+                )
+            )
         for index, start in enumerate(self.config.rusher_starts, start=1):
-            players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.DEFENDER, f"ru{index}"))
+            players.append(
+                PlayerState(
+                    vec2(*start),
+                    vec2(0.0, 0.0),
+                    Role.DEFENDER,
+                    f"ru{index}",
+                    self.config.rusher_speed,
+                )
+            )
 
         self.state = PlayState(
             players=players,
@@ -233,7 +263,7 @@ class Play:
         if isinstance(action, Throw):
             self._launch_throw(action.direction, action.power)
             return
-        speed = self._speed_for(player.role)
+        speed = player.max_speed if player.max_speed > 0.0 else self._speed_for(player.role)
         previous = player.position.copy()
         new_position = previous + action.direction * (speed * dt)
         if player.role is Role.QUARTERBACK:

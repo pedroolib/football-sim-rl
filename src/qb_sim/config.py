@@ -4,6 +4,9 @@ from dataclasses import dataclass, field
 
 from qb_sim.engine.geometry import FieldBounds
 
+MAX_RECEIVERS = 2
+MAX_DEFENDERS = 3
+
 
 @dataclass(frozen=True, slots=True)
 class SimulationConfig:
@@ -18,6 +21,7 @@ class SimulationConfig:
     rusher_starts: tuple[tuple[float, float], ...] = ()
     receiver_speed: float = 7.0
     defender_speed: float = 6.5
+    rusher_speed: float = 6.5
     quarterback_speed: float = 6.5
     ball_speed: float = 25.0
     throw_min_range: float = 5.0
@@ -48,6 +52,7 @@ class SimulationConfig:
             "max_play_duration": self.max_play_duration,
             "receiver_speed": self.receiver_speed,
             "defender_speed": self.defender_speed,
+            "rusher_speed": self.rusher_speed,
             "quarterback_speed": self.quarterback_speed,
             "ball_speed": self.ball_speed,
             "throw_min_range": self.throw_min_range,
@@ -95,6 +100,10 @@ class SimulationConfig:
 
         if len(self.receiver_starts) == 0 or len(self.defender_starts) == 0:
             raise ValueError("receiver_starts and defender_starts must not be empty")
+        if len(self.receiver_starts) > MAX_RECEIVERS:
+            raise ValueError(f"at most {MAX_RECEIVERS} receivers are supported")
+        if len(self.defender_starts) + len(self.rusher_starts) > MAX_DEFENDERS:
+            raise ValueError(f"at most {MAX_DEFENDERS} defenders (including rushers) are supported")
 
         start_groups = (
             ("quarterback_start", (self.quarterback_start,)),

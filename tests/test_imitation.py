@@ -10,14 +10,13 @@ from qb_sim.training.imitation import (  # noqa: E402
     train_behavior_cloning,
     warm_start_policy,
 )
-from qb_sim.training.observations import observation_size  # noqa: E402
+from qb_sim.training.observations import OBSERVATION_SIZE  # noqa: E402
 
 
 def test_demonstrations_have_expected_shapes_and_range() -> None:
-    scenario = get_scenario("rushed")
-    dataset = collect_demonstrations(scenario, episodes=2, seed_start=0)
+    dataset = collect_demonstrations(get_scenario("rushed"), episodes=2, seed_start=0)
 
-    assert dataset.observations.shape[1] == observation_size(scenario.config)
+    assert dataset.observations.shape[1] == OBSERVATION_SIZE
     assert dataset.actions.shape[1] == ACTION_SIZE
     assert dataset.observations.dtype == np.float32
     assert dataset.actions.dtype == np.float32

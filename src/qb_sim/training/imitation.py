@@ -5,6 +5,7 @@ receiver). Imitating them gives PPO a starting point from which exploration of
 precise aiming is feasible.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,6 +67,16 @@ def collect_demonstrations(
     return DemonstrationSet(
         observations=np.stack(observations).astype(np.float32),
         actions=np.stack(actions).astype(np.float32),
+    )
+
+
+def concatenate_demonstrations(datasets: Sequence[DemonstrationSet]) -> DemonstrationSet:
+    """Join demonstration sets from several scenarios into one."""
+    if not datasets:
+        raise ValueError("at least one demonstration set is required")
+    return DemonstrationSet(
+        observations=np.concatenate([dataset.observations for dataset in datasets]),
+        actions=np.concatenate([dataset.actions for dataset in datasets]),
     )
 
 

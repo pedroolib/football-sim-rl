@@ -47,7 +47,7 @@ def build_rule_agents(
         if player_id in rusher_ids:
             agents[player_id] = PassRushController(
                 player_id,
-                settings.defender_speed,
+                settings.rusher_speed,
                 settings.dt,
             )
             continue

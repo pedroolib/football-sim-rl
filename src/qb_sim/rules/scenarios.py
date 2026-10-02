@@ -40,6 +40,45 @@ RUSHED_SCENARIO = Scenario(
     replace(SimulationConfig(), rusher_starts=((30.0, 29.0),)),
     (RouteName.POST, RouteName.SLANT),
 )
+FAST_COVERAGE_SCENARIO = Scenario(
+    "fast_coverage",
+    replace(
+        SimulationConfig(),
+        rusher_starts=((30.0, 29.0),),
+        receiver_speed=7.5,
+        defender_speed=7.0,
+    ),
+    (RouteName.POST, RouteName.SLANT),
+)
+SLOW_RUSH_SCENARIO = Scenario(
+    "slow_rush",
+    replace(
+        SimulationConfig(),
+        rusher_starts=((30.0, 29.0),),
+        rusher_speed=5.0,
+    ),
+    (RouteName.POST, RouteName.SLANT),
+)
+FAST_RUSH_SCENARIO = Scenario(
+    "fast_rush",
+    replace(
+        SimulationConfig(),
+        rusher_starts=((30.0, 29.0),),
+        rusher_speed=8.0,
+    ),
+    (RouteName.POST, RouteName.SLANT),
+)
+MIXED_SCENARIO = Scenario(
+    "mixed",
+    replace(
+        SimulationConfig(),
+        rusher_starts=((30.0, 29.0),),
+        receiver_speed=7.5,
+        defender_speed=6.8,
+        rusher_speed=6.0,
+    ),
+    (RouteName.POST, RouteName.SLANT),
+)
 
 SCENARIOS: dict[str, Scenario] = {
     scenario.name: scenario
@@ -48,6 +87,10 @@ SCENARIOS: dict[str, Scenario] = {
         PRESSURED_SCENARIO,
         DEEP_SCENARIO,
         RUSHED_SCENARIO,
+        FAST_COVERAGE_SCENARIO,
+        SLOW_RUSH_SCENARIO,
+        FAST_RUSH_SCENARIO,
+        MIXED_SCENARIO,
     )
 }
 

@@ -12,8 +12,7 @@ from qb_sim.engine.entities import BallStatus
 from qb_sim.engine.geometry import distance
 from qb_sim.rules.routes import RouteName
 from qb_sim.rules.scenarios import Scenario
-from qb_sim.training.env import ACTION_SIZE, QBPassingEnv
-from qb_sim.training.observations import observation_size
+from qb_sim.training.env import ACTION_SIZE, OBSERVATION_SIZE, QBPassingEnv
 
 ZERO_DEVIATION = replace(
     SimulationConfig(),
@@ -77,7 +76,7 @@ def test_spaces_have_the_documented_shapes() -> None:
     env = QBPassingEnv()
 
     assert env.action_space.shape == (ACTION_SIZE,)
-    assert env.observation_space.shape == (observation_size(SimulationConfig()),)
+    assert env.observation_space.shape == (OBSERVATION_SIZE,)
     assert env.action_space.dtype == np.float32
     assert env.observation_space.dtype == np.float32
 

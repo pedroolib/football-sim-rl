@@ -13,7 +13,7 @@ from qb_sim.engine.entities import BallStatus
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.actions import ACTION_SIZE, encode_engine_action
 from qb_sim.training.env import QBPassingEnv
-from qb_sim.training.observations import observation_size
+from qb_sim.training.observations import OBSERVATION_SIZE
 
 ActionFn = Callable[[QBPassingEnv, np.ndarray], np.ndarray]
 _OUTCOMES = ("completed", "interception", "incomplete", "out_of_bounds", "time_limit", "sack")
@@ -51,9 +51,9 @@ class PPOActionPolicy:
         self._model = PPO.load(str(model_path), device=device)
         self.observation_size = int(self._model.observation_space.shape[0])
 
-    def supports_scenario(self, scenario_name: str) -> bool:
-        """Whether the model's observation matches the scenario roster."""
-        return self.observation_size == observation_size(get_scenario(scenario_name).config)
+    def supports_layout(self) -> bool:
+        """Whether the model was trained with the current observation layout."""
+        return self.observation_size == OBSERVATION_SIZE
 
     def __call__(self, env: QBPassingEnv, observation: np.ndarray) -> np.ndarray:
         action, _ = self._model.predict(observation, deterministic=True)

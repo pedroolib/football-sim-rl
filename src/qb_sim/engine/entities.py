@@ -43,6 +43,7 @@ class PlayerState:
     velocity: Vector2
     role: Role | None = None
     player_id: str = ""
+    max_speed: float = 0.0
 
 
 @dataclass(slots=True)

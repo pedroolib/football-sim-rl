@@ -21,7 +21,12 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 
 from qb_sim.rules.scenarios import SCENARIOS, get_scenario
 from qb_sim.training.env import QBPassingEnv
-from qb_sim.training.imitation import collect_demonstrations, warm_start_policy
+from qb_sim.training.imitation import (
+    collect_demonstrations,
+    concatenate_demonstrations,
+    warm_start_policy,
+)
+from qb_sim.training.multiscenario import MultiScenarioEnv
 from qb_sim.training.ppo_config import PPOConfig
 
 
@@ -46,9 +51,16 @@ def resolve_device(device: str) -> str:
     return device
 
 
-def build_env(scenario_name: str) -> QBPassingEnv:
-    """Create a headless environment for the named scenario."""
-    return QBPassingEnv(get_scenario(scenario_name))
+def effective_scenarios(config: PPOConfig) -> tuple[str, ...]:
+    """Scenarios to train on: the explicit list or the single scenario."""
+    return config.scenarios if config.scenarios else (config.scenario,)
+
+
+def build_env(scenario_names: tuple[str, ...]):
+    """Create a headless environment, cycling scenarios when there are several."""
+    if len(scenario_names) == 1:
+        return QBPassingEnv(get_scenario(scenario_names[0]))
+    return MultiScenarioEnv(scenario_names)
 
 
 def build_model(config: PPOConfig, env) -> PPO:
@@ -81,8 +93,9 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     """Train or resume PPO and persist model, config, checkpoints, and logs."""
     run_dir = Path(config.output_dir) / config.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
-    env = DummyVecEnv([lambda: Monitor(build_env(config.scenario))])
-    eval_env = DummyVecEnv([lambda: Monitor(build_env(config.scenario))])
+    scenarios = effective_scenarios(config)
+    env = DummyVecEnv([lambda: Monitor(build_env(scenarios))])
+    eval_env = DummyVecEnv([lambda: Monitor(build_env(scenarios))])
 
     if resume is not None:
         model = PPO.load(resume, env=env, device=resolve_device(config.device))
@@ -94,11 +107,15 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     imitation_loss: float | None = None
     imitation_samples = 0
     if resume is None and config.imitation_episodes > 0:
-        dataset = collect_demonstrations(
-            get_scenario(config.scenario),
-            episodes=config.imitation_episodes,
-            seed_start=config.seed,
-        )
+        datasets = [
+            collect_demonstrations(
+                get_scenario(name),
+                episodes=config.imitation_episodes,
+                seed_start=config.seed,
+            )
+            for name in scenarios
+        ]
+        dataset = concatenate_demonstrations(datasets)
         imitation_samples = len(dataset.observations)
         imitation_loss = warm_start_policy(
             model,
@@ -108,7 +125,10 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
             learning_rate=config.imitation_learning_rate,
             seed=config.seed,
         )
-        print(f"imitation warm start: {imitation_samples} muestras, loss {imitation_loss:.5f}")
+        print(
+            f"imitation warm start: {imitation_samples} muestras "
+            f"de {', '.join(scenarios)}, loss {imitation_loss:.5f}"
+        )
 
     callbacks = [
         AttemptAnnealingCallback(config.attempt_decay_steps),
@@ -139,6 +159,7 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     metadata["device"] = resolve_device(config.device)
     metadata["torch"] = torch.__version__
     metadata["resumed_from"] = resume
+    metadata["scenarios"] = list(scenarios)
     metadata["imitation_samples"] = imitation_samples
     metadata["imitation_loss"] = imitation_loss
     (run_dir / "config.json").write_text(
@@ -157,6 +178,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--timesteps", type=int, default=defaults.total_timesteps)
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--scenario", default=defaults.scenario, choices=sorted(SCENARIOS))
+    parser.add_argument(
+        "--scenarios",
+        default=None,
+        help="Comma-separated scenario list to cycle during training.",
+    )
     parser.add_argument("--run-name", default=defaults.run_name)
     parser.add_argument("--output-dir", default=defaults.output_dir)
     parser.add_argument("--checkpoint-freq", type=int, default=defaults.checkpoint_freq)
@@ -169,10 +195,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--device", default=defaults.device)
     parser.add_argument("--resume", default=None)
     args = parser.parse_args(argv)
+    scenarios = (
+        tuple(name.strip() for name in args.scenarios.split(",") if name.strip())
+        if args.scenarios
+        else ()
+    )
 
     config = PPOConfig(
         run_name=args.run_name,
         scenario=args.scenario,
+        scenarios=scenarios,
         total_timesteps=args.timesteps,
         seed=args.seed,
         n_envs=args.n_envs,

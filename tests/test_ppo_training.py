@@ -91,7 +91,7 @@ def test_training_warm_starts_from_demonstrations(tmp_path) -> None:
     assert metadata["imitation_loss"] is not None
 
 
-def test_ppo_action_policy_checks_scenario_compatibility(tmp_path) -> None:
+def test_ppo_action_policy_checks_layout_compatibility(tmp_path) -> None:
     config = PPOConfig(
         run_name="compat-run",
         scenario="rushed",
@@ -113,8 +113,31 @@ def test_ppo_action_policy_checks_scenario_compatibility(tmp_path) -> None:
     from qb_sim.training.evaluation import PPOActionPolicy
 
     policy = PPOActionPolicy(final_path, device="cpu")
-    assert policy.supports_scenario("rushed")
-    assert not policy.supports_scenario("default")
+    assert policy.supports_layout()
+
+
+def test_training_can_cycle_scenarios(tmp_path) -> None:
+    config = PPOConfig(
+        run_name="multi-run",
+        scenarios=("default", "rushed"),
+        total_timesteps=64,
+        seed=0,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=1,
+        imitation_episodes=0,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    train(config)
+
+    metadata = json.loads((tmp_path / "multi-run" / "config.json").read_text())
+    assert metadata["scenarios"] == ["default", "rushed"]
 
 
 def test_ppo_evaluation_is_reproducible(tmp_path) -> None:

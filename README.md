@@ -71,10 +71,11 @@ import qb_sim.training  # noqa: F401 - registers QBPassing-v0
 env = gym.make("QBPassing-v0")
 ```
 
-- **Observation** (floats in `[-1, 1]`): QB position/velocity, ball status one-hot + height, relative position and velocity of each receiver and defender, pressure, and remaining time. Its size depends on the roster: 27 for `default` (2 receivers + 2 defenders) and 31 for `rushed` (2 receivers + 2 corners + 1 rusher). A trained model is tied to the roster it was trained with.
+- **Observation** (36 floats in `[-1, 1]`): QB position/velocity, ball status one-hot + height, up to 2 receiver slots and 3 defender slots (relative position and velocity, rushers included) with presence flags for empty slots, pressure, and remaining time. The fixed layout lets one policy play any roster.
 - **Action** (6 floats in `[-1, 1]`): `[move_x, move_y, aim_x, aim_y, power_raw, throw_trigger]`; a positive trigger throws toward `(aim_x, aim_y)` with `power = (power_raw + 1) / 2`, otherwise the QB moves. Human and learned policies share the same engine actions.
-- **Rewards** (`training.rewards.RewardConfig`): completion plus yardage, penalties for interception/incompletion/out-of-bounds/time limit, and a small per-tick time penalty; every coefficient is configurable.
+- **Rewards** (`training.rewards.RewardConfig`): completion plus yardage, penalties for interception/incompletion/out-of-bounds/time limit/sack, and a small per-tick time penalty; every coefficient is configurable.
 - **Episodes**: terminate when the play outcome is terminal, truncate at `max_steps`; `reset(seed=...)` is reproducible and `info` exposes the episode seed, outcome, pressure, throw time, and carrier.
+- **Multi-scenario**: `--scenarios default,rushed,pressured,deep` cycles a different scenario every episode (`training.multiscenario`). A single policy trained across all four was not stable with kinematic observations alone; single-scenario training remains the reliable path and multi-task context features are a pending experiment.
 
 ## PPO training (M5)
 
@@ -108,6 +109,26 @@ python scripts/train_dashboard.py --train --run-name ppo_default_v7 --scenario r
 ```
 
 Controls: `P` pause, `1/2/3` speed, `R` restart panels, `Esc` exit. Record the window with OBS or any screen recorder. To inspect a finished run instead, omit `--train`; to show the rule QB for contrast, point it at a run directory without checkpoints. Pass rushers are highlighted in orange in every panel.
+
+## Multi-agent environment (M6)
+
+`qb_sim.training.multiagent.QBPassingMultiAgentEnv` is a PettingZoo `ParallelEnv` where every player decides for itself (install with `python -m pip install -e ".[multi]"`):
+
+- **Agents**: `qb`, the receivers (`wr1`, `wr2`), and every defender including the rusher (`cb1`, `cb2`, `ru1`).
+- **Observations**: the QB uses the 36-float layout; receivers and defenders use a 19-float role-local layout (`training/role_observations.py`).
+- **Actions**: the QB keeps the 6-float hybrid action; every other role moves with a 2-float direction.
+- **Rewards**: zero-sum at the terminal step — offense gets the single-agent terminal reward, defense gets its negative — plus the per-tick time penalty on offense.
+- **Rule compatibility**: `run_rule_episode(env, seed)` runs the M3 rule controllers as every player's policy; the human session and the single-agent environment are unchanged.
+
+```python
+from qb_sim.rules.scenarios import RUSHED_SCENARIO
+from qb_sim.training.multiagent import QBPassingMultiAgentEnv, run_rule_episode
+
+env = QBPassingMultiAgentEnv(RUSHED_SCENARIO)
+print(run_rule_episode(env, seed=0)["outcome"])
+```
+
+MARL training with shared per-role policies (MAPPO) belongs to M7.
 
 ## Controls (visualizer)
 
