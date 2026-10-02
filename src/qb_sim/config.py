@@ -23,7 +23,16 @@ class SimulationConfig:
     throw_max_range: float = 45.0
     throw_min_drag: float = 2.0
     throw_max_drag: float = 45.0
+    throw_base_sigma_degrees: float = 1.0
+    throw_move_penalty: float = 0.75
+    throw_pressure_penalty: float = 0.75
+    throw_distance_penalty: float = 0.40
+    throw_power_sigma: float = 0.015
+    pressure_radius: float = 5.0
     catch_radius: float = 1.0
+    catch_height: float = 3.0
+    arc_ratio: float = 0.2
+    max_arc_height: float = 6.0
     tackle_radius: float = 1.0
     go_length_yards: float = 30.0
     slant_break_yards: float = 3.0
@@ -54,6 +63,12 @@ class SimulationConfig:
                 raise ValueError(f"{name} must be positive")
         if self.catch_radius < 0.0:
             raise ValueError("catch_radius must be non-negative")
+        if self.catch_height < 0.0:
+            raise ValueError("catch_height must be non-negative")
+        if self.arc_ratio < 0.0:
+            raise ValueError("arc_ratio must be non-negative")
+        if self.max_arc_height <= 0.0:
+            raise ValueError("max_arc_height must be positive")
         if self.tackle_radius < 0.0:
             raise ValueError("tackle_radius must be non-negative")
         if not 0.0 <= self.slant_angle_degrees <= 90.0:
@@ -64,6 +79,18 @@ class SimulationConfig:
             raise ValueError("throw_max_range must exceed throw_min_range")
         if self.throw_max_drag <= self.throw_min_drag:
             raise ValueError("throw_max_drag must exceed throw_min_drag")
+        non_negative_spread = {
+            "throw_base_sigma_degrees": self.throw_base_sigma_degrees,
+            "throw_move_penalty": self.throw_move_penalty,
+            "throw_pressure_penalty": self.throw_pressure_penalty,
+            "throw_distance_penalty": self.throw_distance_penalty,
+            "throw_power_sigma": self.throw_power_sigma,
+        }
+        for name, value in non_negative_spread.items():
+            if value < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        if self.pressure_radius <= 0.0:
+            raise ValueError("pressure_radius must be positive")
 
         if len(self.receiver_starts) == 0 or len(self.defender_starts) == 0:
             raise ValueError("receiver_starts and defender_starts must not be empty")

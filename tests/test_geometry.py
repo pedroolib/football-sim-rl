@@ -1,6 +1,14 @@
+import math
+
 import pytest
 
-from qb_sim.engine.geometry import FieldBounds, distance, segment_circle_contact_fraction, vec2
+from qb_sim.engine.geometry import (
+    FieldBounds,
+    distance,
+    rotate,
+    segment_circle_contact_fraction,
+    vec2,
+)
 
 
 def test_distance_uses_euclidean_coordinates() -> None:
@@ -47,6 +55,12 @@ def test_segment_circle_contact_is_zero_when_starting_inside() -> None:
     )
 
     assert fraction == 0.0
+
+
+def test_rotate_turns_a_vector_counterclockwise() -> None:
+    rotated = rotate(vec2(1.0, 0.0), math.pi / 2.0)
+
+    assert rotated.tolist() == pytest.approx([0.0, 1.0])
 
 
 def test_field_bounds_clamp_position_to_edges() -> None:

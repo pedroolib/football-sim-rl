@@ -4,7 +4,8 @@ from collections.abc import Mapping, Sequence
 
 import pygame
 
-from qb_sim.engine.geometry import vec2
+from qb_sim.engine.geometry import distance, vec2
+from qb_sim.engine.physics import arc_peak
 from qb_sim.rules.play import Play
 from qb_sim.ui.rendering import (
     draw_aim,
@@ -69,7 +70,12 @@ class PygameApp:
         draw_routes(self.screen, self.session.play, self.view)
         draw_players(self.screen, state, self.view)
         if aim is not None:
-            draw_aim(self.screen, aim, self.view)
+            peak = arc_peak(
+                distance(aim.origin, aim.target),
+                self.session.play.config.arc_ratio,
+                self.session.play.config.max_arc_height,
+            )
+            draw_aim(self.screen, aim, self.view, peak)
         draw_ball_guide(self.screen, state, self.view)
         draw_ball(self.screen, state, self.view)
         draw_hud(

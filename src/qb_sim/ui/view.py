@@ -73,3 +73,23 @@ def dash_segments(
         )
         distance += dash + gap
     return segments
+
+
+def arc_screen_points(
+    view: ViewTransform,
+    start: Vector2,
+    end: Vector2,
+    peak_height: float,
+    samples: int = 24,
+) -> list[Vector2]:
+    """Sample a pass arc as screen points, lifting each ground point by height."""
+    if samples <= 0:
+        raise ValueError("samples must be positive")
+    points: list[Vector2] = []
+    for index in range(samples + 1):
+        progress = index / samples
+        ground = start + (end - start) * progress
+        height = 4.0 * peak_height * progress * (1.0 - progress)
+        screen = view.to_screen(ground)
+        points.append(vec2(screen[0], screen[1] - height * view.scale))
+    return points

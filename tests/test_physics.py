@@ -4,6 +4,8 @@ from qb_sim.engine.entities import BallState, BallStatus
 from qb_sim.engine.geometry import FieldBounds, vec2
 from qb_sim.engine.physics import (
     advance_ball,
+    arc_peak,
+    ball_height_at,
     move_toward,
     moving_circle_contact_fraction,
     segment_field_exit_fraction,
@@ -80,3 +82,31 @@ def test_segment_field_exit_fraction_is_none_for_an_inside_segment() -> None:
     fraction = segment_field_exit_fraction(vec2(1.0, 1.0), vec2(9.0, 4.0), field)
 
     assert fraction is None
+
+
+def test_arc_peak_scales_with_distance_and_caps() -> None:
+    assert arc_peak(10.0, ratio=0.2, max_height=6.0) == pytest.approx(2.0)
+    assert arc_peak(100.0, ratio=0.2, max_height=6.0) == pytest.approx(6.0)
+    assert arc_peak(0.0, ratio=0.2, max_height=6.0) == pytest.approx(0.0)
+
+
+def test_ball_height_follows_a_parabola() -> None:
+    ball = BallState(
+        position=vec2(0.0, 0.0),
+        velocity=vec2(10.0, 0.0),
+        status=BallStatus.IN_FLIGHT,
+        target=vec2(10.0, 0.0),
+        launch_position=vec2(0.0, 0.0),
+        flight_distance=10.0,
+        arc_peak=2.0,
+    )
+
+    assert ball_height_at(ball, vec2(0.0, 0.0)) == pytest.approx(0.0)
+    assert ball_height_at(ball, vec2(5.0, 0.0)) == pytest.approx(2.0)
+    assert ball_height_at(ball, vec2(10.0, 0.0)) == pytest.approx(0.0)
+
+
+def test_ball_height_is_zero_without_a_launch() -> None:
+    ball = BallState(position=vec2(0.0, 0.0), velocity=vec2(0.0, 0.0))
+
+    assert ball_height_at(ball, vec2(5.0, 0.0)) == 0.0

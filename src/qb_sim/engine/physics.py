@@ -56,6 +56,22 @@ def segment_field_exit_fraction(
     return min(candidates) if candidates else None
 
 
+def arc_peak(distance: float, ratio: float, max_height: float) -> float:
+    """Return the apex height of a pass arc for a horizontal distance."""
+    if distance <= 0.0 or ratio <= 0.0 or max_height <= 0.0:
+        return 0.0
+    return min(max_height, distance * ratio)
+
+
+def ball_height_at(ball: BallState, position: Vector2) -> float:
+    """Height of the ball at a ground position along its parabolic flight."""
+    if ball.launch_position is None or ball.flight_distance <= 0.0 or ball.arc_peak <= 0.0:
+        return 0.0
+    progress = float(np.linalg.norm(position - ball.launch_position)) / ball.flight_distance
+    progress = min(max(progress, 0.0), 1.0)
+    return 4.0 * ball.arc_peak * progress * (1.0 - progress)
+
+
 def advance_ball(ball: BallState, dt: float) -> tuple[Vector2, float]:
     """Return the ball's tentative position and fraction of the tick until its target."""
     if dt <= 0.0:

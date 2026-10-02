@@ -19,6 +19,16 @@ def distance(a: Vector2, b: Vector2) -> float:
     return float(np.linalg.norm(a - b))
 
 
+def rotate(vector: Vector2, angle_radians: float) -> Vector2:
+    """Rotate a vector counterclockwise by ``angle_radians``."""
+    cos_angle = np.cos(angle_radians)
+    sin_angle = np.sin(angle_radians)
+    return vec2(
+        float(vector[0] * cos_angle - vector[1] * sin_angle),
+        float(vector[0] * sin_angle + vector[1] * cos_angle),
+    )
+
+
 def segment_circle_contact_fraction(
     start: Vector2,
     end: Vector2,

@@ -3,7 +3,7 @@ import pytest
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.geometry import FieldBounds, vec2
 from qb_sim.ui.controls import aim_from_drag, direction_from_keys
-from qb_sim.ui.view import ViewTransform, dash_segments
+from qb_sim.ui.view import ViewTransform, arc_screen_points, dash_segments
 
 
 def test_direction_from_keys_normalizes_diagonals() -> None:
@@ -40,6 +40,20 @@ def test_dash_segments_split_a_line_into_gaps() -> None:
     assert segments[0][1].tolist() == pytest.approx([8.0, 0.0])
     assert segments[1][0].tolist() == pytest.approx([10.0, 0.0])
     assert segments[1][1].tolist() == pytest.approx([18.0, 0.0])
+
+
+def test_arc_screen_points_form_a_parabola() -> None:
+    view = ViewTransform(FieldBounds(), screen_width=900, screen_height=500, margin=20)
+
+    points = arc_screen_points(view, vec2(0.0, 0.0), vec2(10.0, 0.0), peak_height=2.0, samples=2)
+
+    ground_start = view.to_screen(vec2(0.0, 0.0))
+    ground_mid = view.to_screen(vec2(5.0, 0.0))
+    ground_end = view.to_screen(vec2(10.0, 0.0))
+    assert points[0].tolist() == pytest.approx(ground_start.tolist())
+    assert points[2].tolist() == pytest.approx(ground_end.tolist())
+    assert points[1][0] == pytest.approx(ground_mid[0])
+    assert points[1][1] == pytest.approx(ground_mid[1] - 2.0 * view.scale)
 
 
 def test_aim_from_drag_rejects_short_drags() -> None:

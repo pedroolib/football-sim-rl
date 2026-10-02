@@ -6,7 +6,7 @@ from qb_sim.engine.entities import BallStatus, PlayState, Role
 from qb_sim.engine.geometry import Vector2, vec2
 from qb_sim.rules.play import Play
 from qb_sim.ui.controls import Aim
-from qb_sim.ui.view import ViewTransform, dash_segments
+from qb_sim.ui.view import ViewTransform, arc_screen_points, dash_segments
 
 FIELD_COLOR = (36, 110, 54)
 END_ZONE_COLOR = (26, 82, 44)
@@ -19,6 +19,7 @@ PLAYER_COLORS = {
     Role.DEFENDER: (225, 80, 80),
 }
 BALL_COLOR = (150, 75, 35)
+SHADOW_COLOR = (22, 72, 40)
 PLAYER_RADIUS = 8
 BALL_RADIUS = 4
 END_ZONE_YARDS = 10.0
@@ -116,15 +117,25 @@ def _power_color(power: float) -> tuple[int, int, int]:
     )
 
 
-def draw_aim(surface: pygame.Surface, aim: Aim, view: ViewTransform) -> None:
-    """Draw a dotted slingshot aim line toward the landing point."""
+def draw_aim(
+    surface: pygame.Surface,
+    aim: Aim,
+    view: ViewTransform,
+    arc_peak: float,
+) -> None:
+    """Draw the dotted slingshot arc toward the landing point."""
     color = _power_color(aim.power)
     width = 2 + round(aim.power * 2)
-    start = view.to_screen(aim.origin)
-    end = view.to_screen(aim.target)
-    for segment_start, segment_end in dash_segments(start, end):
-        pygame.draw.line(surface, color, _pixel(segment_start), _pixel(segment_end), width)
-    pygame.draw.circle(surface, color, _screen_int(view, aim.target), 7, 2)
+    points = arc_screen_points(view, aim.origin, aim.target, arc_peak)
+    for segment_start, segment_end in zip(points, points[1:], strict=False):
+        for dash_start, dash_end in dash_segments(segment_start, segment_end):
+            pygame.draw.line(surface, color, _pixel(dash_start), _pixel(dash_end), width)
+    pygame.draw.circle(surface, color, _pixel(points[-1]), 7, 2)
+
+
+def _ball_screen(state: PlayState, view: ViewTransform) -> Vector2:
+    ground = view.to_screen(state.ball.position)
+    return vec2(ground[0], ground[1] - state.ball.height * view.scale)
 
 
 def draw_ball_guide(surface: pygame.Surface, state: PlayState, view: ViewTransform) -> None:
@@ -134,15 +145,16 @@ def draw_ball_guide(surface: pygame.Surface, state: PlayState, view: ViewTransfo
     pygame.draw.line(
         surface,
         GUIDE_COLOR,
-        _screen_int(view, state.ball.position),
+        _pixel(_ball_screen(state, view)),
         _screen_int(view, state.ball.target),
         1,
     )
 
 
 def draw_ball(surface: pygame.Surface, state: PlayState, view: ViewTransform) -> None:
-    """Draw the football at its current position."""
-    pygame.draw.circle(surface, BALL_COLOR, _screen_int(view, state.ball.position), BALL_RADIUS)
+    """Draw the football and its ground shadow when it is airborne."""
+    pygame.draw.circle(surface, SHADOW_COLOR, _screen_int(view, state.ball.position), BALL_RADIUS)
+    pygame.draw.circle(surface, BALL_COLOR, _pixel(_ball_screen(state, view)), BALL_RADIUS)
 
 
 def draw_hud(

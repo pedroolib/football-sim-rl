@@ -10,6 +10,15 @@ from qb_sim.engine.geometry import vec2
 from qb_sim.rules.play import Play
 from qb_sim.rules.routes import RouteName
 
+ZERO_DEVIATION = replace(
+    SimulationConfig(),
+    throw_base_sigma_degrees=0.0,
+    throw_move_penalty=0.0,
+    throw_pressure_penalty=0.0,
+    throw_distance_penalty=0.0,
+    throw_power_sigma=0.0,
+)
+
 
 def _run_until_terminal(simulation: Play):
     for _ in range(200):
@@ -54,7 +63,7 @@ def test_qb_move_action_displaces_him_at_quarterback_speed() -> None:
 
 
 def test_qb_throw_action_uses_direction_and_power() -> None:
-    play = Play()
+    play = Play(ZERO_DEVIATION)
 
     state = play.step(qb_action=Throw(direction=vec2(0.0, 1.0), power=0.5))
 
@@ -64,13 +73,13 @@ def test_qb_throw_action_uses_direction_and_power() -> None:
 
 
 def test_throw_power_scales_range() -> None:
-    soft = Play()
+    soft = Play(ZERO_DEVIATION)
     soft.step(qb_action=Throw(direction=vec2(1.0, 0.0), power=0.0))
 
     assert soft.state.ball.velocity.tolist() == pytest.approx([25.0, 0.0])
     assert soft.state.ball.target.tolist() == pytest.approx([25.0, 26.65])
 
-    hard = Play()
+    hard = Play(ZERO_DEVIATION)
     hard.step(qb_action=Throw(direction=vec2(1.0, 0.0), power=1.0))
 
     assert hard.state.ball.velocity.tolist() == pytest.approx([25.0, 0.0])
@@ -114,7 +123,7 @@ def test_reset_restores_initial_state_and_route_progress() -> None:
 
 
 def test_throw_projects_receiver_position_using_current_velocity() -> None:
-    play = Play()
+    play = Play(ZERO_DEVIATION)
     state = play.step()
     receiver = state.player("wr1")
     expected_target = receiver.position + receiver.velocity * 0.5
@@ -197,7 +206,7 @@ def test_simulations_with_same_config_produce_identical_state_traces() -> None:
 
 def test_catch_switches_ball_to_carried_and_play_continues() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
         receiver_starts=((30.0, 26.65), (119.0, 0.0)),
         defender_starts=((0.0, 0.0), (0.0, 0.0)),
@@ -214,7 +223,7 @@ def test_catch_switches_ball_to_carried_and_play_continues() -> None:
 
 def test_tackle_ends_the_play_after_a_completion() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
         receiver_starts=((21.5, 26.65), (119.0, 0.0)),
         defender_starts=((23.5, 26.65), (0.0, 0.0)),
@@ -236,7 +245,7 @@ def test_tackle_ends_the_play_after_a_completion() -> None:
 
 def test_second_defender_can_tackle_the_carrier() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
         receiver_starts=((119.0, 0.0), (21.5, 26.65)),
         defender_starts=((0.0, 0.0), (23.5, 26.65)),
@@ -256,7 +265,7 @@ def test_second_defender_can_tackle_the_carrier() -> None:
 
 def test_pass_to_second_receiver_uses_its_id_as_carrier() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
         receiver_starts=((119.0, 0.0), (25.0, 10.0)),
         defender_starts=((0.0, 0.0), (0.0, 0.0)),
@@ -272,7 +281,7 @@ def test_pass_to_second_receiver_uses_its_id_as_carrier() -> None:
 
 def test_carrier_out_of_bounds_ends_the_play() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(117.0, 26.65),
         receiver_starts=((118.0, 26.65), (0.0, 0.0)),
         defender_starts=((0.0, 0.0), (0.0, 0.0)),
@@ -291,7 +300,7 @@ def test_carrier_out_of_bounds_ends_the_play() -> None:
 
 def test_pass_can_be_completed() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
         receiver_starts=((30.0, 26.65), (119.0, 0.0)),
         defender_starts=((0.0, 0.0), (0.0, 0.0)),
@@ -305,12 +314,33 @@ def test_pass_can_be_completed() -> None:
     assert state.outcome is PlayOutcome.COMPLETED
 
 
+def test_ball_rises_during_flight_and_lands_at_zero_height() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(20.0, 26.65),
+        receiver_starts=((30.0, 26.65), (119.0, 0.0)),
+        defender_starts=((0.0, 0.0), (0.0, 0.0)),
+    )
+    play = Play(config)
+    play.throw_to(vec2(60.0, 26.65))
+
+    heights: list[float] = []
+    for _ in range(120):
+        state = play.step()
+        heights.append(float(state.ball.height))
+        if state.outcome is not PlayOutcome.IN_PROGRESS:
+            break
+
+    assert max(heights) > 2.0
+    assert state.ball.height == pytest.approx(0.0)
+
+
 def test_defender_intercepts_a_pass_crossing_its_path() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
         receiver_starts=((30.0, 43.0), (119.0, 0.0)),
-        defender_starts=((25.0, 34.825), (0.0, 0.0)),
+        defender_starts=((28.7, 40.87), (0.0, 0.0)),
         defender_speed=1.0,
     )
     play = Play(config)
@@ -321,9 +351,25 @@ def test_defender_intercepts_a_pass_crossing_its_path() -> None:
     assert state.outcome is PlayOutcome.INTERCEPTION
 
 
+def test_ball_flying_above_a_defender_is_not_intercepted() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(20.0, 26.65),
+        receiver_starts=((30.0, 43.0), (119.0, 0.0)),
+        defender_starts=((25.0, 34.825), (0.0, 0.0)),
+        defender_speed=1.0,
+    )
+    play = Play(config)
+    play.throw_with_lead(0.0)
+
+    state = _run_until_terminal(play)
+
+    assert state.outcome is not PlayOutcome.INTERCEPTION
+
+
 def test_defender_wins_when_receiver_and_defender_contact_together() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 40.0),
         receiver_starts=((30.0, 40.0), (119.0, 0.0)),
         defender_starts=((30.0, 40.0), (0.0, 0.0)),
@@ -340,7 +386,7 @@ def test_defender_wins_when_receiver_and_defender_contact_together() -> None:
 
 def test_pass_without_contact_is_incomplete_when_it_reaches_target() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
         receiver_starts=((30.0, 43.0), (119.0, 0.0)),
         defender_starts=((0.0, 0.0), (0.0, 0.0)),
@@ -355,7 +401,7 @@ def test_pass_without_contact_is_incomplete_when_it_reaches_target() -> None:
 
 def test_pass_leaving_field_is_out_of_bounds() -> None:
     config = replace(
-        SimulationConfig(),
+        ZERO_DEVIATION,
         quarterback_start=(110.0, 20.0),
         receiver_starts=((118.0, 43.0), (0.0, 0.0)),
         defender_starts=((0.0, 0.0), (0.0, 0.0)),
@@ -370,7 +416,7 @@ def test_pass_leaving_field_is_out_of_bounds() -> None:
 
 
 def test_play_ends_at_configured_time_limit() -> None:
-    config = replace(SimulationConfig(), max_play_duration=0.1)
+    config = replace(ZERO_DEVIATION, max_play_duration=0.1)
     play = Play(config)
 
     play.step()
@@ -381,7 +427,7 @@ def test_play_ends_at_configured_time_limit() -> None:
 
 
 def test_terminal_state_does_not_advance_again() -> None:
-    config = replace(SimulationConfig(), max_play_duration=0.05)
+    config = replace(ZERO_DEVIATION, max_play_duration=0.05)
     play = Play(config)
     terminal = play.step()
     receiver_position = terminal.player("wr1").position.copy()

@@ -253,14 +253,13 @@ Al completar un hito:
 ## 11. Estado del repositorio
 
 - M1 implementado: paquete en capas `src/qb_sim/engine` (geometría, entidades, acciones híbridas `Move`/`Throw`, física) y `src/qb_sim/rules` (`Play`, rutas `go`/`slant`/`post`). Jugada determinista de pase con recepción, fase de portador, tackle de toque, intercepción, fuera de límites y límite de tiempo.
-- M2 implementado: roster de 2 receptores + 2 defensivos con identidad por jugador, cobertura individual, QB humano con movimiento y lanzamiento *drag-and-throw* estilo resortera (jalar hacia atrás y soltar; línea punteada muestra el destino; `Throw(direction, power)` es la representación `(ángulo, fuerza)` que también usará el agente), `src/qb_sim/ui` (`ViewTransform`, controles, `PlaySession` headless y app Pygame opcional con `pygame-ce`). 84 pruebas con pytest. Sin Gymnasium ni entrenamiento.
+- M2 implementado: roster de 2 receptores + 2 defensivos con identidad por jugador, cobertura individual, QB humano con movimiento y lanzamiento *drag-and-throw* estilo resortera (jalar hacia atrás y soltar; previsualización parabólica punteada; `Throw(direction, power)` es la representación `(ángulo, fuerza)` que también usará el agente), pase con altura y arco parabólico (`arc_ratio`, `max_arc_height`, `catch_height`), precisión contextual con RNG local sembrable (`seed`, `reset(seed=...)`, `PlayState.pressure`; la desviación altera dirección y potencia, no el resultado), `src/qb_sim/ui` (`ViewTransform`, controles, `PlaySession` headless y app Pygame opcional con `pygame-ce`) y `scripts/accuracy_report.py` para calibración reproducible. 105 pruebas con pytest. Sin Gymnasium ni entrenamiento.
 - Pendiente del roadmap: controladores formales por reglas (M3), entorno Gymnasium (M4), entrenamiento (M5), multiagente (M6+). Las políticas de receptores y defensivos siguen siendo provisionales por guion.
 - `docs/superpowers/plans/2026-10-01-qb-simulation-core.md` es histórico; los planes vigentes son `2026-10-01-m1-simulation-engine.md` y `2026-10-01-m2-human-playable-prototype.md`.
 
 ## 12. Decisiones abiertas (requieren aprobación antes de implementar)
 
-1. **Fidelidad del pase:** trayectoria 2D recta como el prototipo actual o altura/arco desde el principio. Recomendación: 2D por ahora, revisar cuando la jugabilidad o el entrenamiento lo requieran.
-2. **Formato de registro/reproducción:** JSON/JSONL con semilla y configuración, u otro formato binario. Debe cubrir acciones humanas y de agentes por igual.
-3. **Interfaz multiagente:** PettingZoo frente a API propia o entornos vectorizados de Gymnasium. Se decide en M6; en M4 conviene un adaptador delgado para no cerrar la puerta.
+1. **Formato de registro/reproducción:** JSON/JSONL con semilla y configuración, u otro formato binario. Debe cubrir acciones humanas y de agentes por igual.
+2. **Interfaz multiagente:** PettingZoo frente a API propia o entornos vectorizados de Gymnasium. Se decide en M6; en M4 conviene un adaptador delgado para no cerrar la puerta.
 
-Resueltas en M2: alcance del primer prototipo jugable (QB humano + 2 receptores + 2 defensivos), esquema de acciones híbrido (`Move` y `Throw(direction, power)` como `(ángulo, fuerza)`) y regla de tackle de toque.
+Resueltas en M2: alcance del primer prototipo jugable (QB humano + 2 receptores + 2 defensivos), esquema de acciones híbrido (`Move` y `Throw(direction, power)` como `(ángulo, fuerza)`), regla de tackle de toque y fidelidad del pase con altura y arco parabólico.

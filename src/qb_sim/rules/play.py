@@ -15,13 +15,16 @@ from qb_sim.engine.entities import (
     PlayState,
     Role,
 )
-from qb_sim.engine.geometry import Vector2, distance, vec2
+from qb_sim.engine.geometry import Vector2, distance, rotate, vec2
 from qb_sim.engine.physics import (
     advance_ball,
+    arc_peak,
+    ball_height_at,
     move_toward,
     moving_circle_contact_fraction,
     segment_field_exit_fraction,
 )
+from qb_sim.rules.accuracy import pressure_from_defenders, throw_spread
 from qb_sim.rules.routes import Route, RouteName, build_route
 
 _QB_ID = "qb"
@@ -43,11 +46,14 @@ class Play:
         self,
         config: SimulationConfig | None = None,
         routes: tuple[RouteName, ...] = (RouteName.POST, RouteName.SLANT),
+        seed: int = 0,
     ) -> None:
         self.config = config if config is not None else SimulationConfig()
         self.routes = tuple(RouteName(route) for route in routes)
         if len(self.routes) != len(self.config.receiver_starts):
             raise ValueError("a route is required for each receiver")
+        self.seed = int(seed)
+        self._rng = np.random.default_rng(self.seed)
         self._player_routes: list[Route] = []
         self._receiver_ids: list[str] = []
         self._defender_ids: list[str] = []
@@ -55,8 +61,11 @@ class Play:
         self.state: PlayState
         self.reset()
 
-    def reset(self) -> PlayState:
-        """Restore the configured roster, starting positions, and routes."""
+    def reset(self, seed: int | None = None) -> PlayState:
+        """Restore the roster and routes; re-seed only when ``seed`` is given."""
+        if seed is not None:
+            self.seed = int(seed)
+            self._rng = np.random.default_rng(self.seed)
         quarterback_position = vec2(*self.config.quarterback_start)
         players = [
             PlayerState(quarterback_position.copy(), vec2(0.0, 0.0), Role.QUARTERBACK, _QB_ID)
@@ -85,7 +94,19 @@ class Play:
             build_route(route, position, self.config.field, self.config)
             for route, position in zip(self.routes, receiver_positions, strict=True)
         ]
+        self.state.pressure = self.pressure_on_quarterback()
         return self.state
+
+    def pressure_on_quarterback(self) -> float:
+        """Return 0..1 pressure from the nearest defender within ``pressure_radius``."""
+        defender_positions = [
+            self.state.player(defender_id).position for defender_id in self._defender_ids
+        ]
+        return pressure_from_defenders(
+            self.state.player(_QB_ID).position,
+            defender_positions,
+            self.config.pressure_radius,
+        )
 
     def throw_to(self, target: Vector2, power: float | None = None) -> None:
         """Launch the ball toward a target point, deriving power from distance."""
@@ -131,16 +152,36 @@ class Play:
             raise ValueError("the ball has already been thrown")
 
         action = Throw(direction=direction, power=power)
-        unit = action.direction
+        quarterback = self.state.player(_QB_ID)
         range_yards = self.config.throw_min_range + action.power * (
             self.config.throw_max_range - self.config.throw_min_range
         )
-        quarterback = self.state.player(_QB_ID)
-        target = quarterback.position + unit * range_yards
+        angle_sigma, power_sigma = throw_spread(
+            float(np.linalg.norm(quarterback.velocity)),
+            self.pressure_on_quarterback(),
+            range_yards,
+            self.config,
+        )
+        angle_error = float(self._rng.normal(0.0, angle_sigma))
+        power_error = float(self._rng.normal(0.0, power_sigma))
+        actual_direction = rotate(action.direction, angle_error)
+        actual_power = min(max(action.power + power_error, 0.0), 1.0)
+        actual_range = self.config.throw_min_range + actual_power * (
+            self.config.throw_max_range - self.config.throw_min_range
+        )
+        target = quarterback.position + actual_direction * actual_range
 
         self.state.ball.position = quarterback.position.copy()
-        self.state.ball.velocity = unit * self.config.ball_speed
+        self.state.ball.velocity = actual_direction * self.config.ball_speed
         self.state.ball.target = np.array(target, dtype=np.float64, copy=True)
+        self.state.ball.launch_position = quarterback.position.copy()
+        self.state.ball.flight_distance = actual_range
+        self.state.ball.arc_peak = arc_peak(
+            actual_range,
+            self.config.arc_ratio,
+            self.config.max_arc_height,
+        )
+        self.state.ball.height = 0.0
         self.state.ball.status = BallStatus.IN_FLIGHT
 
     def step(self, qb_action: Move | Throw | None = None) -> PlayState:
@@ -172,6 +213,7 @@ class Play:
                 tick_fraction = self._advance_pass(dt, previous_positions)
 
         self.state.elapsed_seconds += dt * tick_fraction
+        self.state.pressure = self.pressure_on_quarterback()
         if (
             self.state.outcome is PlayOutcome.IN_PROGRESS
             and self.state.elapsed_seconds >= self.config.max_play_duration
@@ -290,10 +332,12 @@ class Play:
 
         if not events:
             self.state.ball.position = ball_end
+            self.state.ball.height = ball_height_at(self.state.ball, ball_end)
             return 1.0
 
         event = min(events, key=lambda item: (item.tick_fraction, item.priority, item.order))
         self.state.ball.position = ball_start + (ball_end - ball_start) * event.segment_fraction
+        self.state.ball.height = ball_height_at(self.state.ball, self.state.ball.position)
         for player in self.state.players:
             previous = previous_positions[player.player_id]
             player.position = previous + (player.position - previous) * event.tick_fraction
@@ -314,13 +358,19 @@ class Play:
         previous = previous_positions[player_id]
         current = self.state.player(player_id).position
         window_end = previous + (current - previous) * ball_travel_fraction
-        return moving_circle_contact_fraction(
+        fraction = moving_circle_contact_fraction(
             ball_start,
             ball_end,
             previous,
             window_end,
             self.config.catch_radius,
         )
+        if fraction is None:
+            return None
+        contact_point = ball_start + (ball_end - ball_start) * fraction
+        if ball_height_at(self.state.ball, contact_point) > self.config.catch_height:
+            return None
+        return fraction
 
     def _complete_catch(self, player_id: str | None) -> None:
         if player_id is None:
@@ -329,6 +379,7 @@ class Play:
         self.state.ball.status = BallStatus.CARRIED
         self.state.ball.velocity = vec2(0.0, 0.0)
         self.state.ball.target = None
+        self.state.ball.height = 0.0
         self.state.ball.position = self.state.player(player_id).position.copy()
 
     def _finish_expired_play(self) -> None:
@@ -340,3 +391,4 @@ class Play:
     def _finish(self, outcome: PlayOutcome) -> None:
         self.state.outcome = outcome
         self.state.ball.status = BallStatus.DEAD
+        self.state.ball.height = 0.0

@@ -46,12 +46,16 @@ class PlayerState:
 
 @dataclass(slots=True)
 class BallState:
-    """Football position, velocity, target, and status."""
+    """Football position, velocity, target, status, and flight height."""
 
     position: Vector2
     velocity: Vector2
     status: BallStatus = BallStatus.HELD
     target: Vector2 | None = None
+    height: float = 0.0
+    launch_position: Vector2 | None = None
+    flight_distance: float = 0.0
+    arc_peak: float = 0.0
 
 
 @dataclass(slots=True)
@@ -63,6 +67,7 @@ class PlayState:
     elapsed_seconds: float = 0.0
     outcome: PlayOutcome = PlayOutcome.IN_PROGRESS
     carrier_id: str | None = None
+    pressure: float = 0.0
 
     def player(self, player_id: str) -> PlayerState:
         """Return the player with ``player_id`` or raise ``KeyError``."""

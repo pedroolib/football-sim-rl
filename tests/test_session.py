@@ -1,13 +1,24 @@
 import subprocess
 import sys
+from dataclasses import replace
 
 import numpy as np
 import pytest
 
+from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import BallStatus, PlayOutcome
 from qb_sim.engine.geometry import vec2
 from qb_sim.rules.play import Play
 from qb_sim.ui.session import FrameInput, PlaySession
+
+ZERO_DEVIATION = replace(
+    SimulationConfig(),
+    throw_base_sigma_degrees=0.0,
+    throw_move_penalty=0.0,
+    throw_pressure_penalty=0.0,
+    throw_distance_penalty=0.0,
+    throw_power_sigma=0.0,
+)
 
 
 def _frame(**kwargs) -> FrameInput:
@@ -58,7 +69,7 @@ def test_qb_can_move_while_aiming() -> None:
 
 
 def test_drag_release_throws_with_angle_and_power() -> None:
-    play = Play()
+    play = Play(ZERO_DEVIATION)
     session = PlaySession(play)
     expected_power = 18.0 / 43.0
     expected_target_x = 20.0 + 935.0 / 43.0
