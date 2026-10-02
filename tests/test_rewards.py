@@ -7,6 +7,7 @@ from qb_sim.training.rewards import (
     ReceiverRewardConfig,
     RewardConfig,
     defender_drive_reward,
+    defender_potential,
     drive_result_reward,
     receiver_result_reward,
     terminal_reward,
@@ -170,3 +171,15 @@ def test_defender_reward_is_the_negated_drive_result_reward() -> None:
     assert defender_drive_reward(result, DriveRewardConfig()) == pytest.approx(
         -(1.0 + 12.0 * 0.02 + 0.3)
     )
+
+
+def test_defender_potential_is_bounded_and_monotone() -> None:
+    assert defender_potential(0.0) == 0.0
+    assert defender_potential(-3.0) == 0.0
+    assert defender_potential(1.0) > defender_potential(2.0) > defender_potential(20.0)
+    assert defender_potential(20.0) == -2.0
+    assert defender_potential(1000.0) == -2.0
+    with pytest.raises(ValueError):
+        defender_potential(1.0, scale=0.0)
+    with pytest.raises(ValueError):
+        defender_potential(1.0, scale=-1.0)

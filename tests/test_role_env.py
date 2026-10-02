@@ -5,8 +5,9 @@ from gymnasium.utils.env_checker import check_env
 from qb_sim.engine.actions import Throw
 from qb_sim.engine.entities import BallStatus
 from qb_sim.rules.drive import DriveConfig
+from qb_sim.training.rewards import DefenderRewardConfig, defender_potential
 from qb_sim.training.role_context_observations import RECEIVER_CONTEXT_OBSERVATION_SIZE
-from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
+from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv, defender_target
 
 
 def _noop() -> np.ndarray:
@@ -162,6 +163,7 @@ def test_role_drive_defender_reward_is_zero_sum() -> None:
     env = RoleDriveEnv(
         _sack_scenario(),
         learner_id="cb1",
+        reward_config=DefenderRewardConfig(shaping=False),
         drive_config=DriveConfig(los_range=(20.0, 20.0)),
     )
     env.reset(seed=0)
@@ -174,11 +176,53 @@ def test_role_drive_defender_reward_is_zero_sum() -> None:
     assert rewards == pytest.approx([1.0, 1.0, 1.5])
     assert sum(rewards) == pytest.approx(3.5)
 
-    ongoing = RoleDriveEnv(learner_id="cb1")
+    ongoing = RoleDriveEnv(
+        learner_id="cb1",
+        reward_config=DefenderRewardConfig(shaping=False),
+    )
     ongoing.reset(seed=0)
     _, reward, terminated, truncated, _ = ongoing.step(np.zeros(2, dtype=np.float32))
     assert not (terminated or truncated)
     assert reward == 0.0
+
+
+def _learner_potential(env: RoleDriveEnv) -> float:
+    target_id = defender_target(env.play, env.learner_id)
+    state = env.play.state
+    distance = float(
+        np.linalg.norm(
+            state.player(env.learner_id).position - state.player(target_id).position
+        )
+    )
+    return defender_potential(distance, env.reward_config.shaping_scale)
+
+
+def test_role_drive_shaping_is_potential_based() -> None:
+    shaped = RoleDriveEnv(learner_id="cb1")
+    plain = RoleDriveEnv(
+        learner_id="cb1",
+        reward_config=DefenderRewardConfig(shaping=False),
+    )
+    shaped.reset(seed=0)
+    plain.reset(seed=0)
+    action = np.zeros(2, dtype=np.float32)
+    terminated = truncated = False
+    terminal_terms: list[float] = []
+    while not (terminated or truncated):
+        potential_before = _learner_potential(shaped)
+        _, shaped_reward, terminated, truncated, _ = shaped.step(action)
+        _, plain_reward, _, _, _ = plain.step(action)
+        terminal_terms.append(plain_reward)
+        # Phi(s') is 0 once the drive is over; otherwise it is the potential of
+        # the current (or newly started) play state.
+        phi_after = 0.0 if terminated else _learner_potential(shaped)
+        expected = (
+            plain_reward
+            + shaped.reward_config.shaping_gamma * phi_after
+            - potential_before
+        )
+        assert shaped_reward == pytest.approx(expected)
+    assert any(term != 0.0 for term in terminal_terms)
 
 
 def test_role_drive_step_after_termination_raises() -> None:

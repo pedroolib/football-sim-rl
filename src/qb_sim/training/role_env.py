@@ -17,9 +17,10 @@ from qb_sim.rules.play import Play
 from qb_sim.rules.routes import sample_routes
 from qb_sim.rules.scenarios import STAGE_B_SCENARIO, Scenario
 from qb_sim.training.rewards import (
-    DriveRewardConfig,
+    DefenderRewardConfig,
     ReceiverRewardConfig,
     defender_drive_reward,
+    defender_potential,
     receiver_result_reward,
 )
 from qb_sim.training.role_context_observations import (
@@ -263,7 +264,7 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         scenario: Scenario | None = None,
         learner_id: str = "cb1",
         opponents: Mapping[str, Any] | None = None,
-        reward_config: DriveRewardConfig | None = None,
+        reward_config: DefenderRewardConfig | None = None,
         drive_config: DriveConfig | None = None,
         goal_line: float = 100.0,
         max_steps: int = 2400,
@@ -272,7 +273,9 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         self.scenario = scenario if scenario is not None else STAGE_B_SCENARIO
         self.learner_id = learner_id
         self.opponents = dict(opponents or {})
-        self.reward_config = reward_config if reward_config is not None else DriveRewardConfig()
+        self.reward_config = (
+            reward_config if reward_config is not None else DefenderRewardConfig()
+        )
         self.drive_config = drive_config if drive_config is not None else DriveConfig()
         self.goal_line = float(goal_line)
         self.max_steps = int(max_steps)
@@ -368,6 +371,7 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         if learner_action is not None:
             engine_actions[self.learner_id] = learner_action
 
+        potential_before = self._potential(self.play.state)
         state = self.play.step(engine_actions)
         self._steps += 1
         self._track_diagnostics(state)
@@ -379,7 +383,7 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             distance_before = self.drive.state.distance
             los_before = self.drive.state.los
             result = self.drive.advance(self.play)
-            reward = defender_drive_reward(result, self.reward_config)
+            reward = defender_drive_reward(result, self.reward_config.terminal)
             self.play_history.append(
                 {
                     "down": down_before,
@@ -402,6 +406,15 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             terminated = self.drive.state.terminated
             if not terminated:
                 self._start_play()
+                next_potential = self._potential(self.play.state)
+            else:
+                next_potential = 0.0
+        else:
+            next_potential = self._potential(state)
+        if self.reward_config.shaping:
+            reward += (
+                self.reward_config.shaping_gamma * next_potential - potential_before
+            )
         if not terminated and self._steps >= self.max_steps:
             truncated = True
         return self.observation(), float(reward), terminated, truncated, self._info()
@@ -436,6 +449,17 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         learner = state.player(self.learner_id)
         target = state.player(target_id)
         return float(np.linalg.norm(learner.position - target.position))
+
+    def _potential(self, state) -> float:
+        target_id = defender_target(self.play, self.learner_id)
+        if target_id is None:
+            return 0.0
+        distance = float(
+            np.linalg.norm(
+                state.player(self.learner_id).position - state.player(target_id).position
+            )
+        )
+        return defender_potential(distance, self.reward_config.shaping_scale)
 
     def _info(self) -> dict[str, Any]:
         return {

@@ -87,3 +87,20 @@ def receiver_result_reward(
 def defender_drive_reward(result: PlayResult, config: DriveRewardConfig) -> float:
     """Zero-sum defender reward for one finished drive play."""
     return -drive_result_reward(result, config)
+
+
+@dataclass(frozen=True, slots=True)
+class DefenderRewardConfig:
+    """Zero-sum terminal reward plus policy-invariant coverage shaping."""
+
+    terminal: DriveRewardConfig = field(default_factory=DriveRewardConfig)
+    shaping: bool = True
+    shaping_gamma: float = 0.99
+    shaping_scale: float = 10.0
+
+
+def defender_potential(distance: float, scale: float = 10.0) -> float:
+    """Potential: closer to the target is better (bounded to ``[-2, 0]``)."""
+    if scale <= 0.0:
+        raise ValueError("scale must be positive")
+    return -min(max(float(distance), 0.0), 2.0 * scale) / scale
