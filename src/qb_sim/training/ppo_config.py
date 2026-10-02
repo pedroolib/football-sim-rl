@@ -10,6 +10,7 @@ class PPOConfig:
 
     run_name: str = "ppo_default"
     scenario: str = "default"
+    env_kind: str = "passing"
     scenarios: tuple[str, ...] = ()
     total_timesteps: int = 200_000
     seed: int = 0

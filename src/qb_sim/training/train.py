@@ -9,6 +9,7 @@ loads PyTorch or Stable-Baselines3.
 """
 
 import argparse
+import dataclasses
 import json
 from pathlib import Path
 
@@ -19,14 +20,19 @@ from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.scenarios import SCENARIOS, get_scenario
+from qb_sim.training.drive_env import QBDriveEnv
+from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
 from qb_sim.training.env import QBPassingEnv
 from qb_sim.training.imitation import (
     collect_demonstrations,
+    collect_drive_demonstrations,
     concatenate_demonstrations,
     warm_start_policy,
 )
 from qb_sim.training.multiscenario import MultiScenarioEnv
+from qb_sim.training.observations import OBSERVATION_SIZE
 from qb_sim.training.ppo_config import PPOConfig
 
 
@@ -56,8 +62,12 @@ def effective_scenarios(config: PPOConfig) -> tuple[str, ...]:
     return config.scenarios if config.scenarios else (config.scenario,)
 
 
-def build_env(scenario_names: tuple[str, ...]):
+def build_env(scenario_names: tuple[str, ...], env_kind: str = "passing"):
     """Create a headless environment, cycling scenarios when there are several."""
+    if env_kind == "drive":
+        if len(scenario_names) != 1:
+            raise ValueError("drive training supports exactly one scenario")
+        return QBDriveEnv(get_scenario(scenario_names[0]), drive_config=DriveConfig())
     if len(scenario_names) == 1:
         return QBPassingEnv(get_scenario(scenario_names[0]))
     return MultiScenarioEnv(scenario_names)
@@ -94,8 +104,8 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     run_dir = Path(config.output_dir) / config.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     scenarios = effective_scenarios(config)
-    env = DummyVecEnv([lambda: Monitor(build_env(scenarios))])
-    eval_env = DummyVecEnv([lambda: Monitor(build_env(scenarios))])
+    env = DummyVecEnv([lambda: Monitor(build_env(scenarios, config.env_kind))])
+    eval_env = DummyVecEnv([lambda: Monitor(build_env(scenarios, config.env_kind))])
 
     if resume is not None:
         model = PPO.load(resume, env=env, device=resolve_device(config.device))
@@ -107,14 +117,25 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     imitation_loss: float | None = None
     imitation_samples = 0
     if resume is None and config.imitation_episodes > 0:
-        datasets = [
-            collect_demonstrations(
-                get_scenario(name),
-                episodes=config.imitation_episodes,
-                seed_start=config.seed,
-            )
-            for name in scenarios
-        ]
+        if config.env_kind == "drive":
+            datasets = [
+                collect_drive_demonstrations(
+                    get_scenario(name),
+                    episodes=config.imitation_episodes,
+                    seed_start=config.seed,
+                    drive_config=DriveConfig(),
+                )
+                for name in scenarios
+            ]
+        else:
+            datasets = [
+                collect_demonstrations(
+                    get_scenario(name),
+                    episodes=config.imitation_episodes,
+                    seed_start=config.seed,
+                )
+                for name in scenarios
+            ]
         dataset = concatenate_demonstrations(datasets)
         imitation_samples = len(dataset.observations)
         imitation_loss = warm_start_policy(
@@ -162,6 +183,12 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     metadata["scenarios"] = list(scenarios)
     metadata["imitation_samples"] = imitation_samples
     metadata["imitation_loss"] = imitation_loss
+    metadata["env_kind"] = config.env_kind
+    metadata["observation_size"] = (
+        DRIVE_OBSERVATION_SIZE if config.env_kind == "drive" else OBSERVATION_SIZE
+    )
+    if config.env_kind == "drive":
+        metadata["drive"] = dataclasses.asdict(DriveConfig())
     (run_dir / "config.json").write_text(
         json.dumps(metadata, indent=2) + "\n",
         encoding="utf-8",
@@ -178,6 +205,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--timesteps", type=int, default=defaults.total_timesteps)
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--scenario", default=defaults.scenario, choices=sorted(SCENARIOS))
+    parser.add_argument("--env", choices=("passing", "drive"), default=defaults.env_kind)
     parser.add_argument(
         "--scenarios",
         default=None,
@@ -204,6 +232,7 @@ def main(argv: list[str] | None = None) -> None:
     config = PPOConfig(
         run_name=args.run_name,
         scenario=args.scenario,
+        env_kind=args.env,
         scenarios=scenarios,
         total_timesteps=args.timesteps,
         seed=args.seed,

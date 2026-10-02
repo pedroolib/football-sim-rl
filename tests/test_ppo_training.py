@@ -165,3 +165,36 @@ def test_ppo_evaluation_is_reproducible(tmp_path) -> None:
     second = evaluate(policy, "default", range(3))
 
     assert first == second
+
+
+def test_drive_training_smoke(tmp_path) -> None:
+    from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
+
+    config = PPOConfig(
+        run_name="drive-run",
+        env_kind="drive",
+        scenario="rushed",
+        total_timesteps=256,
+        seed=0,
+        n_steps=64,
+        batch_size=32,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=64,
+        imitation_episodes=1,
+        imitation_epochs=2,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    _, final_path = train(config)
+
+    metadata = json.loads((tmp_path / "drive-run" / "config.json").read_text())
+    assert metadata["env_kind"] == "drive"
+    assert metadata["observation_size"] == DRIVE_OBSERVATION_SIZE
+    assert metadata["imitation_samples"] > 0
+
+    loaded = PPO.load(final_path, device="cpu")
+    assert loaded.observation_space.shape == (DRIVE_OBSERVATION_SIZE,)
