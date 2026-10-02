@@ -24,7 +24,6 @@ from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.drive_observations import drive_observation_from_state
 from qb_sim.training.observations import observation_from_state
 
-_CLIP = 0.999
 _STAND_ACTION = np.array([0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32)
 
 
@@ -158,37 +157,48 @@ def train_behavior_cloning(
 ) -> tuple[BehaviorCloningNetwork, float]:
     """Train a network to imitate the demonstrations; return it and the loss.
 
-    Throw samples are rare (about one per episode), so they are upweighted to
-    make the network accurate on the states that decide the pass.
+    Stable-Baselines3's ``MlpPolicy`` outputs raw Gaussian means (no ``tanh``
+    squashing), and the environment decodes those raw values, so the targets
+    are the recorded actions themselves. The trigger is trained with binary
+    cross-entropy and the rare throw samples upweight the aim and power
+    components that decide the pass.
     """
     torch.manual_seed(seed)
     network = BehaviorCloningNetwork(dataset.observations.shape[1], hidden, action_size)
     optimizer = torch.optim.Adam(network.parameters(), lr=learning_rate)
     observations = torch.as_tensor(dataset.observations)
-    targets = torch.as_tensor(np.arctanh(np.clip(dataset.actions, -_CLIP, _CLIP)))
-    weights = torch.where(
-        torch.as_tensor(dataset.actions[:, 5] > 0.0),
-        torch.full((len(dataset.actions),), throw_weight),
-        torch.ones(len(dataset.actions)),
-    )
+    targets = torch.as_tensor(dataset.actions)
     generator = torch.Generator().manual_seed(seed)
 
-    def weighted_loss(predictions: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
-        per_sample = nn.functional.mse_loss(
-            predictions,
-            targets[index],
+    def batch_loss(predictions: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
+        if action_size != ACTION_SIZE:
+            return nn.functional.mse_loss(predictions, targets[index])
+        is_throw = targets[index, 5] > 0.0
+        trigger_loss = nn.functional.binary_cross_entropy_with_logits(
+            predictions[:, 5],
+            is_throw.float(),
+        )
+        move_mse = nn.functional.mse_loss(
+            predictions[:, :5],
+            targets[index, :5],
             reduction="none",
         ).mean(dim=1)
-        return (per_sample * weights[index]).mean()
+        throw_mse = nn.functional.mse_loss(
+            predictions[:, 2:5],
+            targets[index, 2:5],
+            reduction="none",
+        ).mean(dim=1)
+        action_loss = torch.where(is_throw, throw_weight * throw_mse, move_mse).mean()
+        return trigger_loss + action_loss
 
     with torch.no_grad():
-        final_loss = float(weighted_loss(network(observations), torch.arange(len(observations))))
+        final_loss = float(batch_loss(network(observations), torch.arange(len(observations))))
     for _ in range(epochs):
         permutation = torch.randperm(len(observations), generator=generator)
         for start in range(0, len(observations), batch_size):
             index = permutation[start : start + batch_size]
             optimizer.zero_grad()
-            loss = weighted_loss(network(observations[index]), index)
+            loss = batch_loss(network(observations[index]), index)
             loss.backward()
             optimizer.step()
         final_loss = float(loss.detach())

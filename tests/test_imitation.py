@@ -55,6 +55,21 @@ def test_behavior_cloning_reduces_the_loss() -> None:
     assert final < initial
 
 
+def _throw_direction_mse(means: torch.Tensor, actions: np.ndarray) -> float:
+    """Normalized-direction MSE between raw policy means and demonstrated aims."""
+    throw_rows = torch.as_tensor(actions[:, 5] > 0.0)
+    mean_unit = means[:, 2:4] / means[:, 2:4].norm(dim=1, keepdim=True).clamp_min(1e-9)
+    action = torch.as_tensor(actions[:, 2:4])
+    action_unit = action / action.norm(dim=1, keepdim=True).clamp_min(1e-9)
+    return float((mean_unit[throw_rows] - action_unit[throw_rows]).pow(2).mean())
+
+
+def _trigger_agreement(means: torch.Tensor, actions: np.ndarray) -> float:
+    """Fraction of rows where the raw trigger sign matches the demonstration."""
+    throw_rows = torch.as_tensor(actions[:, 5] > 0.0)
+    return float(((means[:, 5] > 0.0) == throw_rows).float().mean())
+
+
 def test_warm_start_imitates_the_rule_quarterback() -> None:
     pytest.importorskip("stable_baselines3")
     from stable_baselines3 import PPO
@@ -75,14 +90,11 @@ def test_warm_start_imitates_the_rule_quarterback() -> None:
     loss = warm_start_policy(model, dataset, epochs=150, seed=0)
 
     assert np.isfinite(loss)
-    observations = torch.as_tensor(dataset.observations[:64])
+    observations = torch.as_tensor(dataset.observations)
     with torch.no_grad():
         means = model.policy.action_net(model.policy.mlp_extractor.policy_net(observations))
-        predicted = torch.tanh(means).numpy()
-    mse = float(np.mean((predicted - dataset.actions[:64]) ** 2))
-    assert mse < 0.05
-    trigger_agreement = float(np.mean((predicted[:, 5] > 0.0) == (dataset.actions[:64, 5] > 0.0)))
-    assert trigger_agreement > 0.9
+    assert _throw_direction_mse(means, dataset.actions) < 0.01
+    assert _trigger_agreement(means, dataset.actions) > 0.9
 
 
 from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE  # noqa: E402
@@ -123,3 +135,29 @@ def test_drive_warm_start_loads_the_behavior_cloning_weights() -> None:
         expected = network(observations)
         loaded = model.policy.action_net(model.policy.mlp_extractor.policy_net(observations))
     assert torch.allclose(expected, loaded, atol=1e-6)
+
+
+def test_warm_start_targets_raw_actions_not_tanh() -> None:
+    pytest.importorskip("stable_baselines3")
+    from stable_baselines3 import PPO
+
+    from qb_sim.training.drive_env import QBDriveEnv
+
+    scenario = get_scenario("rushed")
+    dataset = collect_drive_demonstrations(scenario, episodes=2, seed_start=0)
+    model = PPO(
+        "MlpPolicy",
+        QBDriveEnv(scenario),
+        n_steps=32,
+        batch_size=16,
+        seed=0,
+        device="cpu",
+    )
+
+    warm_start_policy(model, dataset, epochs=400, seed=0)
+
+    observations = torch.as_tensor(dataset.observations)
+    with torch.no_grad():
+        means = model.policy.action_net(model.policy.mlp_extractor.policy_net(observations))
+    assert _throw_direction_mse(means, dataset.actions) < 0.01
+    assert _trigger_agreement(means, dataset.actions) > 0.9
