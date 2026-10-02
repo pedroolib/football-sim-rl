@@ -58,6 +58,22 @@ Throws leave with a deviation drawn from a local seeded NumPy generator. The ang
 
 Run `python scripts/accuracy_report.py` for a reproducible calibration report over fixed seeds (spread statistics and outcome distributions for planted, moving, and pressured throws).
 
+## Gymnasium environment (M4)
+
+`qb_sim.training.QBPassingEnv` trains the quarterback while receivers and defenders use the M3 rule controllers. Importing `qb_sim.training` registers it as `QBPassing-v0`:
+
+```python
+import gymnasium as gym
+import qb_sim.training  # noqa: F401 - registers QBPassing-v0
+
+env = gym.make("QBPassing-v0")
+```
+
+- **Observation** (27 floats in `[-1, 1]`): QB position/velocity, ball status one-hot + height, relative position and velocity of each receiver and defender, pressure, and remaining time.
+- **Action** (6 floats in `[-1, 1]`): `[move_x, move_y, aim_x, aim_y, power_raw, throw_trigger]`; a positive trigger throws toward `(aim_x, aim_y)` with `power = (power_raw + 1) / 2`, otherwise the QB moves. Human and learned policies share the same engine actions.
+- **Rewards** (`training.rewards.RewardConfig`): completion plus yardage, penalties for interception/incompletion/out-of-bounds/time limit, and a small per-tick time penalty; every coefficient is configurable.
+- **Episodes**: terminate when the play outcome is terminal, truncate at `max_steps`; `reset(seed=...)` is reproducible and `info` exposes the episode seed, outcome, pressure, throw time, and carrier.
+
 ## Controls (visualizer)
 
 Drag-and-throw, Retro Bowl style (slingshot):
