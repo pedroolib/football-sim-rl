@@ -45,6 +45,15 @@ class SimulationConfig:
     post_break_yards: float = 10.0
     post_angle_degrees: float = 45.0
     cut_length_yards: float = 20.0
+    out_break_yards: float = 5.0
+    out_angle_degrees: float = 75.0
+    curl_depth_yards: float = 10.0
+    curl_back_yards: float = 3.0
+    flat_length_yards: float = 6.0
+    wheel_break_yards: float = 4.0
+    wheel_length_yards: float = 20.0
+    corner_break_yards: float = 12.0
+    corner_angle_degrees: float = 45.0
 
     def __post_init__(self) -> None:
         positive_values = {
@@ -63,6 +72,13 @@ class SimulationConfig:
             "slant_break_yards": self.slant_break_yards,
             "post_break_yards": self.post_break_yards,
             "cut_length_yards": self.cut_length_yards,
+            "out_break_yards": self.out_break_yards,
+            "curl_depth_yards": self.curl_depth_yards,
+            "curl_back_yards": self.curl_back_yards,
+            "flat_length_yards": self.flat_length_yards,
+            "wheel_break_yards": self.wheel_break_yards,
+            "wheel_length_yards": self.wheel_length_yards,
+            "corner_break_yards": self.corner_break_yards,
         }
         for name, value in positive_values.items():
             if value <= 0.0:
@@ -81,6 +97,10 @@ class SimulationConfig:
             raise ValueError("slant_angle_degrees must be between 0 and 90")
         if not 0.0 <= self.post_angle_degrees <= 90.0:
             raise ValueError("post_angle_degrees must be between 0 and 90")
+        if not 0.0 <= self.out_angle_degrees <= 90.0:
+            raise ValueError("out_angle_degrees must be between 0 and 90")
+        if not 0.0 <= self.corner_angle_degrees <= 90.0:
+            raise ValueError("corner_angle_degrees must be between 0 and 90")
         if self.throw_max_range <= self.throw_min_range:
             raise ValueError("throw_max_range must exceed throw_min_range")
         if self.throw_max_drag <= self.throw_min_drag:

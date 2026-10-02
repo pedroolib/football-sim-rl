@@ -16,6 +16,38 @@ class RouteName(StrEnum):
     GO = "go"
     SLANT = "slant"
     POST = "post"
+    OUT = "out"
+    CURL = "curl"
+    FLAT = "flat"
+    WHEEL = "wheel"
+    CORNER = "corner"
+
+
+ROUTE_OBSERVATION_ORDER: tuple[RouteName, ...] = (
+    RouteName.GO,
+    RouteName.SLANT,
+    RouteName.POST,
+    RouteName.OUT,
+    RouteName.CURL,
+    RouteName.FLAT,
+    RouteName.WHEEL,
+    RouteName.CORNER,
+)
+DEFAULT_ROUTE_POOL = ROUTE_OBSERVATION_ORDER
+
+
+def sample_routes(
+    rng: np.random.Generator,
+    count: int,
+    pool: tuple[RouteName, ...] = DEFAULT_ROUTE_POOL,
+) -> tuple[RouteName, ...]:
+    """Draw ``count`` routes uniformly from ``pool`` using ``rng``."""
+    if count < 0:
+        raise ValueError("count must be non-negative")
+    if not pool:
+        raise ValueError("pool must not be empty")
+    indices = rng.integers(0, len(pool), size=count)
+    return tuple(pool[int(index)] for index in indices)
 
 
 @dataclass(slots=True)
@@ -77,6 +109,7 @@ def build_route(
     start_point = np.array(start, dtype=np.float64, copy=True)
     field_center_y = field.width_yards / 2.0
     inward_sign = -1.0 if start_point[1] > field_center_y else 1.0
+    outward_sign = -inward_sign
 
     if name is RouteName.GO:
         waypoints = (_clamp_to_field(start_point + vec2(config.go_length_yards, 0.0), field),)
@@ -84,7 +117,7 @@ def build_route(
         break_point = _clamp_to_field(start_point + vec2(config.slant_break_yards, 0.0), field)
         waypoints = (
             break_point,
-            _cut_inward(
+            _angled_cut(
                 break_point,
                 inward_sign,
                 config.slant_angle_degrees,
@@ -96,10 +129,59 @@ def build_route(
         break_point = _clamp_to_field(start_point + vec2(config.post_break_yards, 0.0), field)
         waypoints = (
             break_point,
-            _cut_inward(
+            _angled_cut(
                 break_point,
                 inward_sign,
                 config.post_angle_degrees,
+                config.cut_length_yards,
+                field,
+            ),
+        )
+    elif name is RouteName.OUT:
+        break_point = _clamp_to_field(start_point + vec2(config.out_break_yards, 0.0), field)
+        waypoints = (
+            break_point,
+            _angled_cut(
+                break_point,
+                outward_sign,
+                config.out_angle_degrees,
+                config.cut_length_yards,
+                field,
+            ),
+        )
+    elif name is RouteName.CURL:
+        waypoints = (
+            _clamp_to_field(start_point + vec2(config.curl_depth_yards, 0.0), field),
+            _clamp_to_field(
+                start_point
+                + vec2(config.curl_depth_yards - config.curl_back_yards, 0.0),
+                field,
+            ),
+        )
+    elif name is RouteName.FLAT:
+        waypoints = (
+            _clamp_to_field(
+                start_point + vec2(0.0, outward_sign * config.flat_length_yards),
+                field,
+            ),
+        )
+    elif name is RouteName.WHEEL:
+        break_point = _clamp_to_field(
+            start_point + vec2(0.0, outward_sign * config.wheel_break_yards),
+            field,
+        )
+        waypoints = (
+            break_point,
+            _clamp_to_field(break_point + vec2(config.wheel_length_yards, 0.0), field),
+        )
+    elif name is RouteName.CORNER:
+        break_point = _clamp_to_field(start_point + vec2(config.corner_break_yards, 0.0), field)
+        waypoints = (
+            break_point,
+            _angled_cut(
+                break_point,
+                outward_sign,
+                config.corner_angle_degrees,
                 config.cut_length_yards,
                 field,
             ),
@@ -110,15 +192,15 @@ def build_route(
     return Route(waypoints)
 
 
-def _cut_inward(
+def _angled_cut(
     start: Vector2,
-    inward_sign: float,
+    sign: float,
     angle_degrees: float,
     length_yards: float,
     field: FieldBounds,
 ) -> Vector2:
     angle = radians(angle_degrees)
-    offset = vec2(length_yards * cos(angle), inward_sign * length_yards * sin(angle))
+    offset = vec2(length_yards * cos(angle), sign * length_yards * sin(angle))
     return _clamp_to_field(start + offset, field)
 
 
