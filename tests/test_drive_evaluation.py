@@ -66,7 +66,24 @@ def test_summarize_drives_computes_third_down_and_depth_metrics() -> None:
     assert summary["third_and_long_throw_depth_yards"] == pytest.approx(25.0)
     assert summary["checkdown_pct"] == pytest.approx(0.0)
     assert summary["sack_pct"] == pytest.approx(0.0)
+    assert summary["sack_ci"][0] == pytest.approx(0.0)
+    assert summary["sack_ci"][1] > 0.0
+    assert summary["coverage_sack_ci"] == summary["sack_ci"]
+    assert summary["incomplete_ci"] != summary["sack_ci"]
+    assert summary["incomplete_ci"][0] > 0.0
+    assert summary["incomplete_ci"][1] > summary["sack_ci"][1]
     assert summary["plays_per_drive"] == pytest.approx(1.5)
+
+
+def test_summarize_drives_handles_missing_third_downs() -> None:
+    results = [_result("max_plays", [_play(1, 10.0, "completed", first_down=True)])]
+
+    summary = summarize_drives(results)
+
+    assert summary["third_down_conversion_pct"] == 0.0
+    assert summary["third_down_conversion_ci"] == [0.0, 0.0]
+    assert summary["third_and_long_conversion_pct"] == 0.0
+    assert summary["checkdown_pct"] == 0.0
 
 
 def test_evaluate_drive_with_the_rule_quarterback_is_reproducible() -> None:

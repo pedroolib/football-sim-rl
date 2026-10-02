@@ -132,6 +132,9 @@ def summarize_drives(results: list[DriveEpisodeResult]) -> dict:
         "checkdown_pct": pct(checkdowns, len(long_throws)),
         "checkdown_ci": ci(checkdowns, len(long_throws)),
         "sack_pct": pct(sacks, len(plays)),
+        "sack_ci": ci(sacks, len(plays)),
         "coverage_sack_pct": pct(coverage_sacks, len(plays)),
+        "coverage_sack_ci": ci(coverage_sacks, len(plays)),
         "incomplete_pct": pct(incompletes, len(plays)),
+        "incomplete_ci": ci(incompletes, len(plays)),
     }
