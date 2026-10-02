@@ -102,7 +102,10 @@ used by M6 stay untouched.
   The next waypoint is derived from the called route and the receiver's start
   position; it makes the rule policy near-Markov so behavior cloning can
   reproduce route running (measured: 22% vs 17% baseline catches).
-  Builder: `receiver_context_observation(state, player_id, config, route, goal_line=100.0)`.
+  While the receiver is the carrier, the three route-progress values are zeroed
+  (the route waypoint is stale after the catch; the carrier must run to the end
+  zone, driven by the ball-status one-hot and yards-to-goal).
+  Builder: `receiver_context_observation(state, player_id, config, route, goal_line=100.0, start=None)`.
 - `DEFENDER_CONTEXT_OBSERVATION_SIZE = 24`: the 19-float role observation plus
   down one-hot (3), `min(distance, 40)/40`, and yards to the goal line `/100`.
   Builder: `defender_context_observation(state, player_id, target_id, config, drive_state, goal_line=100.0)`.
@@ -117,16 +120,20 @@ New module `training/role_env.py` (registered as Gymnasium environments).
 
 - `RolePlayEnv(scenario=RUSHED_SCENARIO, learner_id="wr1", opponents=None, receiver_reward=None, goal_line=100.0, max_steps=240)`.
 - Episode = one play. Random routes sampled per episode from
-  `DEFAULT_ROUTE_POOL` with the environment RNG; `Play(config, seed, goal_line=100.0)`.
+  `DEFAULT_ROUTE_POOL` with the environment RNG plus a random line of
+  scrimmage in `[25, 50]` (matching drives); `Play(config, seed, line_of_scrimmage=los, goal_line=100.0)`.
+  Before this, the receiver only saw LOS 20 and degraded at drive positions
+  (14% vs 22% catches at LOS 45).
 - Stage B defines the fatigue-enabled configuration explicitly in
   `rules/scenarios.py`:
   `STAGE_B_CONFIG = replace(SimulationConfig(), carrier_fatigue_per_second=<calibrated>, carrier_min_speed_factor=0.55)`
   and a `STAGE_B_SCENARIO` (rushed roster) built from it. The fatigue values come
   from the §3.3 calibration report; `RolePlayEnv`, `RoleDriveEnv`, composition,
   and QB v12 all use `STAGE_B_CONFIG`.
-- Learner observation: 28 floats; action: `Box(2)` movement.
-- Teammates: QB policy (`opponents["qb"]`, e.g. v10), the other receiver and all
-  defenders by rule controllers (overridable via `opponents`).
+- Learner observation: 31 floats; action: `Box(2)` movement.
+- Teammates: QB policy (`opponents["qb"]`, the frozen drive QB v11 via
+  `DrivePolicyQuarterback` with a default `1st & 10` drive context), the other
+  receiver and all defenders by rule controllers (overridable via `opponents`).
 - Shared policy across `wr1`/`wr2`: train with a `DummyVecEnv` of two envs
   (learner `wr1` and learner `wr2`).
 - `info`: seed, outcome, yards, caught (carrier == learner), separation at throw
