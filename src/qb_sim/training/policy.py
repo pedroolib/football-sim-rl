@@ -12,6 +12,7 @@ import numpy as np
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import PlayState
+from qb_sim.engine.geometry import Vector2
 from qb_sim.rules.drive import DriveState
 from qb_sim.rules.routes import RouteName
 from qb_sim.rules.scenarios import get_scenario
@@ -79,7 +80,7 @@ def _move_from_action(action: Any) -> Move | None:
 
 
 class ReceiverPolicy:
-    """Receiver callable ``(state, route) -> Move | None`` backed by a PPO model."""
+    """Receiver callable ``(state, route, start=None) -> Move | None``."""
 
     def __init__(
         self,
@@ -93,13 +94,19 @@ class ReceiverPolicy:
         self._player_id = player_id
         self._goal_line = float(goal_line)
 
-    def __call__(self, state: PlayState, route: RouteName | None) -> Move | None:
+    def __call__(
+        self,
+        state: PlayState,
+        route: RouteName | None,
+        start: Vector2 | None = None,
+    ) -> Move | None:
         observation = receiver_context_observation(
             state,
             self._player_id,
             self._config,
             route,
             self._goal_line,
+            start,
         )
         action, _ = self._model.predict(observation, deterministic=True)
         return _move_from_action(action)

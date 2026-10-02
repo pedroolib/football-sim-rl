@@ -12,6 +12,7 @@ from qb_sim.agents.loop import build_rule_agents
 from qb_sim.agents.rule_controllers import HeuristicQuarterback
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import PlayOutcome
+from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import Drive, DriveConfig, DriveState
 from qb_sim.rules.play import Play
 from qb_sim.rules.routes import sample_routes
@@ -64,7 +65,12 @@ def decide_player_action(
         return policy(play.state, routes, drive_state)
     if player_id in play.receiver_ids:
         index = play.receiver_ids.index(player_id)
-        return policy(play.state, routes[index])
+        shift = play.line_of_scrimmage - play.config.quarterback_start[0]
+        start = vec2(
+            play.config.receiver_starts[index][0] + shift,
+            play.config.receiver_starts[index][1],
+        )
+        return policy(play.state, routes[index], start)
     return policy(play.state, defender_target(play, player_id), drive_state)
 
 

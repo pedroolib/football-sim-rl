@@ -60,6 +60,19 @@ def test_receiver_context_encodes_route_progress() -> None:
     assert observation[30] == pytest.approx(1.0)
 
 
+def test_receiver_context_uses_the_provided_start() -> None:
+    play = Play()
+    play.state.player("wr1").position = vec2(45.0, 43.0)
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.GO, start=vec2(40.0, 43.0)
+    )
+
+    # GO from (40,43) breaks at (70,43): delta (25,0)
+    assert observation[28] == pytest.approx(25.0 / 120.0)
+    assert observation[30] == pytest.approx(1.0)
+
+
 def test_defender_context_observation_has_the_documented_size_and_range() -> None:
     play = Play()
     observation = defender_context_observation(

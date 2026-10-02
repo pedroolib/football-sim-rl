@@ -138,7 +138,7 @@ def test_qb_drive_env_calls_context_aware_opponents() -> None:
 
     calls: list[object] = []
 
-    def opponent(state, route):
+    def opponent(state, route, start):
         calls.append(route)
         return None
 

@@ -53,14 +53,21 @@ def receiver_context_observation(
     config: SimulationConfig,
     route: RouteName | None,
     goal_line: float = 100.0,
+    start: Vector2 | None = None,
 ) -> np.ndarray:
-    """Receiver observation plus its route, field position, and route progress."""
+    """Receiver observation plus its route, field position, and route progress.
+
+    ``start`` overrides the unshifted formation start so callers playing a
+    shifted line of scrimmage build route-progress features from the actual
+    spot; ``None`` keeps the default formation derivation.
+    """
     values = [float(value) for value in receiver_observation(state, player_id, config)]
     values.extend(1.0 if route is route_name else 0.0 for route_name in ROUTE_OBSERVATION_ORDER)
     position_x = float(state.player(player_id).position[0])
     values.append((float(goal_line) - position_x) / float(goal_line))
     index = int(player_id.removeprefix("wr")) - 1
-    start = vec2(*config.receiver_starts[index])
+    if start is None:
+        start = vec2(*config.receiver_starts[index])
     waypoint = _next_route_waypoint(route, start, state.player(player_id).position, config)
     if waypoint is None:
         values.extend((0.0, 0.0, 0.0))
