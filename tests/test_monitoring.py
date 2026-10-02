@@ -1,9 +1,15 @@
+from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
+from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.monitoring import (
     DemoPanel,
+    DriveDemoPanel,
+    checkpoint_catalog,
+    checkpoint_label,
     checkpoint_steps,
     latest_checkpoint,
     read_progress,
+    total_timesteps,
 )
 
 
@@ -51,3 +57,67 @@ def test_demo_panel_finishes_and_restarts() -> None:
         panel.tick()
 
     assert panel.finished >= 1
+
+
+def test_checkpoint_catalog_orders_steps_then_extras(tmp_path) -> None:
+    directory = tmp_path / "checkpoints"
+    directory.mkdir()
+    (directory / "run_100000_steps.zip").touch()
+    (directory / "run_50000_steps.zip").touch()
+    (tmp_path / "best").mkdir()
+    (tmp_path / "best" / "best_model.zip").touch()
+    (tmp_path / "final_model.zip").touch()
+
+    catalog = checkpoint_catalog(tmp_path)
+
+    assert [path.name for path in catalog] == [
+        "run_50000_steps.zip",
+        "run_100000_steps.zip",
+        "best_model.zip",
+        "final_model.zip",
+    ]
+    assert checkpoint_label(catalog[0]) == "step 50,000"
+    assert checkpoint_label(catalog[2]) == "best"
+    assert checkpoint_label(catalog[3]) == "final"
+
+
+def test_checkpoint_catalog_is_empty_without_files(tmp_path) -> None:
+    assert checkpoint_catalog(tmp_path) == []
+
+
+def test_total_timesteps_reads_the_run_config(tmp_path) -> None:
+    (tmp_path / "config.json").write_text('{"total_timesteps": 250000}', encoding="utf-8")
+
+    assert total_timesteps(tmp_path) == 250000
+    assert total_timesteps(tmp_path / "missing") is None
+
+
+def test_drive_panel_plays_drives_and_tracks_stats() -> None:
+    panel = DriveDemoPanel(
+        get_scenario("rushed"),
+        policy=None,
+        seed=0,
+        drive_config=DriveConfig(los_range=(40.0, 40.0)),
+    )
+
+    for _ in range(600):
+        panel.tick()
+        if panel.drives >= 1:
+            break
+
+    assert panel.drives >= 1
+    assert panel.last_outcome != ""
+
+    for _ in range(20):
+        panel.tick()
+
+    assert panel.down_label.startswith(("1st", "2nd", "3rd"))
+
+
+def test_drive_panel_is_deterministic_for_a_seed() -> None:
+    config = DriveConfig(los_range=(40.0, 40.0))
+    first = DriveDemoPanel(get_scenario("rushed"), seed=7, drive_config=config)
+    second = DriveDemoPanel(get_scenario("rushed"), seed=7, drive_config=config)
+
+    assert first.drive.routes == second.drive.routes
+    assert first.drive.state.los == second.drive.state.los

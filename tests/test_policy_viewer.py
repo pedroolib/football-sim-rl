@@ -5,8 +5,10 @@ import numpy as np
 
 from qb_sim.engine.actions import Throw
 from qb_sim.engine.entities import BallStatus
+from qb_sim.rules.drive import DriveState
 from qb_sim.rules.play import Play
-from qb_sim.training.policy import PolicyQuarterback
+from qb_sim.rules.routes import RouteName
+from qb_sim.training.policy import DrivePolicyQuarterback, PolicyQuarterback
 from qb_sim.ui.session import FrameInput, PlaySession
 
 
@@ -23,6 +25,15 @@ def test_policy_quarterback_maps_the_action_to_the_engine() -> None:
     policy = PolicyQuarterback(_StubModel([0.0, 0.0, 1.0, 0.0, 1.0, 1.0]), play.config)
 
     action = policy(play.state)
+
+    assert isinstance(action, Throw)
+
+
+def test_drive_policy_quarterback_maps_the_action_to_the_engine() -> None:
+    play = Play()
+    policy = DrivePolicyQuarterback(_StubModel([0.0, 0.0, 1.0, 0.0, 1.0, 1.0]), play.config)
+
+    action = policy(play.state, (RouteName.POST, RouteName.SLANT), DriveState(los=20.0))
 
     assert isinstance(action, Throw)
 

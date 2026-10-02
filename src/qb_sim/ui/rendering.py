@@ -23,6 +23,8 @@ PLAYER_COLORS = {
 RUSHER_COLOR = (255, 145, 40)
 BALL_COLOR = (150, 75, 35)
 SHADOW_COLOR = (22, 72, 40)
+SCRIMMAGE_COLOR = (255, 235, 120)
+FIRST_DOWN_COLOR = (90, 160, 255)
 PLAYER_RADIUS = 8
 BALL_RADIUS = 4
 END_ZONE_YARDS = 10.0
@@ -84,6 +86,32 @@ def draw_field(surface: pygame.Surface, view: ViewTransform) -> None:
         end = _screen_int(view, vec2(yard, field.width_yards))
         pygame.draw.line(surface, LINE_COLOR, start, end, 1)
         yard += 10.0
+
+
+def draw_scrimmage(
+    surface: pygame.Surface,
+    view: ViewTransform,
+    los: float,
+    first_down: float,
+    goal_line: float = 100.0,
+) -> None:
+    """Draw the line of scrimmage and the first-down marker."""
+    field = view.field
+    pygame.draw.line(
+        surface,
+        SCRIMMAGE_COLOR,
+        _screen_int(view, vec2(los, 0.0)),
+        _screen_int(view, vec2(los, field.width_yards)),
+        2,
+    )
+    if 0.0 <= first_down <= goal_line:
+        pygame.draw.line(
+            surface,
+            FIRST_DOWN_COLOR,
+            _screen_int(view, vec2(first_down, 0.0)),
+            _screen_int(view, vec2(first_down, field.width_yards)),
+            2,
+        )
 
 
 def draw_routes(

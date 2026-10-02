@@ -59,3 +59,70 @@ def test_dashboard_reloads_the_latest_checkpoint(dummy_video, tmp_path) -> None:
         assert loaded == ["run_50000_steps.zip", "run_100000_steps.zip"]
     finally:
         dashboard.close()
+
+
+def test_dashboard_drive_mode_runs_drives(dummy_video, tmp_path) -> None:
+    dashboard = TrainingDashboard(tmp_path, env_kind="drive", panels=1, screen_size=(640, 360))
+    try:
+        for _ in range(80):
+            dashboard.step_frames(0.05)
+        dashboard.draw_frame()
+
+        panel = dashboard.panels[0]
+        assert panel.down_label.startswith(("1st", "2nd", "3rd"))
+        assert panel.play.state.elapsed_seconds >= 0.0
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_navigates_checkpoints(dummy_video, tmp_path) -> None:
+    checkpoints = tmp_path / "checkpoints"
+    checkpoints.mkdir()
+    (checkpoints / "run_50000_steps.zip").touch()
+    (checkpoints / "run_100000_steps.zip").touch()
+    (tmp_path / "config.json").write_text('{"total_timesteps": 200000}', encoding="utf-8")
+    dashboard = TrainingDashboard(
+        tmp_path,
+        panels=1,
+        screen_size=(640, 360),
+        policy_factory=lambda path: _StubPolicy(),
+    )
+    try:
+        dashboard.reload_policy()
+        assert dashboard.checkpoint_path.name == "run_100000_steps.zip"
+        assert dashboard.checkpoint_status() == "checkpoint 2/2 · step 100,000 / 200,000"
+
+        dashboard.select_previous_checkpoint()
+        assert dashboard.checkpoint_path.name == "run_50000_steps.zip"
+        assert dashboard.checkpoint_status() == "checkpoint 1/2 · step 50,000 / 200,000"
+
+        dashboard.follow_live()
+        dashboard.reload_policy()
+        assert dashboard.checkpoint_path.name == "run_100000_steps.zip"
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_arrow_keys_change_checkpoints(dummy_video, tmp_path) -> None:
+    checkpoints = tmp_path / "checkpoints"
+    checkpoints.mkdir()
+    (checkpoints / "run_50000_steps.zip").touch()
+    (checkpoints / "run_100000_steps.zip").touch()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        panels=1,
+        screen_size=(640, 360),
+        policy_factory=lambda path: _StubPolicy(),
+    )
+    try:
+        dashboard.reload_policy()
+
+        dashboard._handle_events(
+            [pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT)]
+        )
+        assert dashboard.checkpoint_path.name == "run_50000_steps.zip"
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_l)])
+        assert dashboard.checkpoint_path.name == "run_100000_steps.zip"
+    finally:
+        dashboard.close()

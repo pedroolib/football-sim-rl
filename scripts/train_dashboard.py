@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--run-name", default="ppo_default_v2")
     parser.add_argument("--output-dir", default="runs")
     parser.add_argument("--scenario", default="rushed", choices=sorted(SCENARIOS))
+    parser.add_argument("--env", choices=("passing", "drive"), default="passing")
     parser.add_argument("--panels", type=int, default=6)
     parser.add_argument("--train", action="store_true", help="Launch training as a subprocess")
     parser.add_argument("--timesteps", type=int, default=200_000)
@@ -46,6 +47,8 @@ def main() -> None:
                 args.output_dir,
                 "--scenario",
                 args.scenario,
+                "--env",
+                args.env,
                 "--device",
                 args.device,
             ]
@@ -55,6 +58,7 @@ def main() -> None:
             run_dir,
             scenario_name=args.scenario,
             panels=args.panels,
+            env_kind=args.env,
         ).run()
     finally:
         if process is not None:
