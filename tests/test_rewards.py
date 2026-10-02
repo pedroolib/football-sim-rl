@@ -138,6 +138,22 @@ def test_receiver_reward_keeps_terminal_penalties() -> None:
     )
 
 
+def test_receiver_reward_pays_the_touchdown_bonus_when_catching() -> None:
+    config = ReceiverRewardConfig()
+
+    reward = receiver_result_reward(PlayOutcome.TOUCHDOWN, 0.0, True, config)
+
+    assert reward == pytest.approx(0.0 + 0.3 + 7.0)
+
+
+def test_receiver_reward_pays_the_touchdown_bonus_without_a_catch() -> None:
+    config = ReceiverRewardConfig()
+
+    reward = receiver_result_reward(PlayOutcome.TOUCHDOWN, 0.0, False, config)
+
+    assert reward == pytest.approx(0.0 + 7.0)
+
+
 def test_defender_reward_is_the_negated_drive_result_reward() -> None:
     result = PlayResult(
         outcome=PlayOutcome.COMPLETED,

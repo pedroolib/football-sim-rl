@@ -66,6 +66,7 @@ class ReceiverRewardConfig:
 
     play: RewardConfig = field(default_factory=RewardConfig)
     catch_bonus: float = 0.3
+    touchdown_bonus: float = 7.0
 
 
 def receiver_result_reward(
@@ -78,6 +79,8 @@ def receiver_result_reward(
     reward = terminal_reward(outcome, yards, config.play)
     if caught:
         reward += config.catch_bonus
+    if outcome is PlayOutcome.TOUCHDOWN:
+        reward += config.touchdown_bonus
     return float(reward)
 
 
