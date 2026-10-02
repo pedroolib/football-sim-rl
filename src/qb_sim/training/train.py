@@ -29,12 +29,19 @@ from qb_sim.training.env import QBPassingEnv
 from qb_sim.training.imitation import (
     collect_demonstrations,
     collect_drive_demonstrations,
+    collect_role_drive_demonstrations,
+    collect_role_play_demonstrations,
     concatenate_demonstrations,
     warm_start_policy,
 )
 from qb_sim.training.multiscenario import MultiScenarioEnv
 from qb_sim.training.observations import OBSERVATION_SIZE
 from qb_sim.training.ppo_config import PPOConfig
+from qb_sim.training.role_context_observations import (
+    DEFENDER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_CONTEXT_OBSERVATION_SIZE,
+)
+from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
 
 
 class AttemptAnnealingCallback(BaseCallback):
@@ -47,7 +54,9 @@ class AttemptAnnealingCallback(BaseCallback):
     def _on_step(self) -> bool:
         scale = max(0.0, 1.0 - self.num_timesteps / self._decay_steps)
         for env in self.model.get_env().envs:
-            env.unwrapped.set_attempt_scale(scale)
+            target = env.unwrapped
+            if hasattr(target, "set_attempt_scale"):
+                target.set_attempt_scale(scale)
         return True
 
 
@@ -63,14 +72,59 @@ def effective_scenarios(config: PPOConfig) -> tuple[str, ...]:
     return config.scenarios if config.scenarios else (config.scenario,)
 
 
-def build_env(scenario_names: tuple[str, ...], env_kind: str = "passing"):
-    """Create a headless environment, cycling scenarios when there are several."""
-    if env_kind not in ("passing", "drive"):
+def build_opponents(env_kind: str, scenario_name: str, pairs) -> dict:
+    """Load frozen opponent policies with the context-aware adapters."""
+    from qb_sim.training.policy import (
+        load_defender_policy,
+        load_drive_policy,
+        load_policy,
+        load_receiver_policy,
+    )
+
+    opponents: dict = {}
+    for player_id, path in pairs:
+        if player_id == "qb":
+            loader = load_drive_policy if env_kind in ("drive", "role_drive") else load_policy
+            opponents[player_id] = loader(path, scenario_name)
+        elif player_id in ("wr1", "wr2"):
+            opponents[player_id] = load_receiver_policy(path, scenario_name, player_id)
+        else:
+            opponents[player_id] = load_defender_policy(path, scenario_name, player_id)
+    return opponents
+
+
+def build_env(
+    scenario_names: tuple[str, ...],
+    env_kind: str = "passing",
+    learner: str = "qb",
+    opponents: tuple[tuple[str, str], ...] = (),
+):
+    """Create a headless environment for the requested training mode."""
+    if env_kind not in ("passing", "drive", "role_play", "role_drive"):
         raise ValueError(f"unknown env_kind: {env_kind!r}")
+    if env_kind in ("drive", "role_play", "role_drive") and len(scenario_names) != 1:
+        raise ValueError(f"{env_kind} training supports exactly one scenario")
     if env_kind == "drive":
-        if len(scenario_names) != 1:
-            raise ValueError("drive training supports exactly one scenario")
-        return QBDriveEnv(get_scenario(scenario_names[0]), drive_config=DriveConfig())
+        scenario = get_scenario(scenario_names[0])
+        return QBDriveEnv(
+            scenario,
+            drive_config=DriveConfig(),
+            opponents=build_opponents(env_kind, scenario_names[0], opponents),
+        )
+    if env_kind == "role_play":
+        scenario = get_scenario(scenario_names[0])
+        return RolePlayEnv(
+            scenario,
+            learner_id=learner,
+            opponents=build_opponents(env_kind, scenario_names[0], opponents),
+        )
+    if env_kind == "role_drive":
+        scenario = get_scenario(scenario_names[0])
+        return RoleDriveEnv(
+            scenario,
+            learner_id=learner,
+            opponents=build_opponents(env_kind, scenario_names[0], opponents),
+        )
     if len(scenario_names) == 1:
         return QBPassingEnv(get_scenario(scenario_names[0]))
     return MultiScenarioEnv(scenario_names)
@@ -107,8 +161,20 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     run_dir = Path(config.output_dir) / config.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     scenarios = effective_scenarios(config)
-    env = DummyVecEnv([lambda: Monitor(build_env(scenarios, config.env_kind))])
-    eval_env = DummyVecEnv([lambda: Monitor(build_env(scenarios, config.env_kind))])
+    env = DummyVecEnv(
+        [
+            lambda: Monitor(
+                build_env(scenarios, config.env_kind, config.learner, config.opponents)
+            )
+        ]
+    )
+    eval_env = DummyVecEnv(
+        [
+            lambda: Monitor(
+                build_env(scenarios, config.env_kind, config.learner, config.opponents)
+            )
+        ]
+    )
 
     if resume is not None:
         model = PPO.load(resume, env=env, device=resolve_device(config.device))
@@ -130,6 +196,28 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
                 )
                 for name in scenarios
             ]
+        elif config.env_kind == "role_play":
+            datasets = [
+                collect_role_play_demonstrations(
+                    get_scenario(name),
+                    learner_id=config.learner,
+                    episodes=config.imitation_episodes,
+                    seed_start=config.seed,
+                    opponents=build_opponents(config.env_kind, name, config.opponents),
+                )
+                for name in scenarios
+            ]
+        elif config.env_kind == "role_drive":
+            datasets = [
+                collect_role_drive_demonstrations(
+                    get_scenario(name),
+                    learner_id=config.learner,
+                    episodes=config.imitation_episodes,
+                    seed_start=config.seed,
+                    opponents=build_opponents(config.env_kind, name, config.opponents),
+                )
+                for name in scenarios
+            ]
         else:
             datasets = [
                 collect_demonstrations(
@@ -148,6 +236,7 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
             epochs=config.imitation_epochs,
             learning_rate=config.imitation_learning_rate,
             seed=config.seed,
+            action_size=dataset.actions.shape[1],
         )
         print(
             f"imitation warm start: {imitation_samples} muestras "
@@ -187,9 +276,22 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     metadata["imitation_samples"] = imitation_samples
     metadata["imitation_loss"] = imitation_loss
     metadata["env_kind"] = config.env_kind
-    metadata["observation_size"] = (
-        DRIVE_OBSERVATION_SIZE if config.env_kind == "drive" else OBSERVATION_SIZE
-    )
+    metadata["learner"] = config.learner
+    metadata["opponents"] = [list(pair) for pair in config.opponents]
+    if config.env_kind == "drive":
+        metadata["observation_size"] = DRIVE_OBSERVATION_SIZE
+    elif config.env_kind == "role_play":
+        metadata["observation_size"] = RECEIVER_CONTEXT_OBSERVATION_SIZE
+    elif config.env_kind == "role_drive":
+        metadata["observation_size"] = DEFENDER_CONTEXT_OBSERVATION_SIZE
+    else:
+        metadata["observation_size"] = OBSERVATION_SIZE
+    if config.env_kind in ("role_play", "role_drive", "drive"):
+        stage_b = get_scenario(scenarios[0]).config
+        metadata["fatigue"] = {
+            "carrier_fatigue_per_second": stage_b.carrier_fatigue_per_second,
+            "carrier_min_speed_factor": stage_b.carrier_min_speed_factor,
+        }
     if config.env_kind == "drive":
         metadata["drive"] = dataclasses.asdict(DriveConfig())
         metadata["route_pool"] = [route.value for route in ROUTE_OBSERVATION_ORDER]
@@ -209,7 +311,19 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--timesteps", type=int, default=defaults.total_timesteps)
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--scenario", default=defaults.scenario, choices=sorted(SCENARIOS))
-    parser.add_argument("--env", choices=("passing", "drive"), default=defaults.env_kind)
+    parser.add_argument(
+        "--env",
+        choices=("passing", "drive", "role_play", "role_drive"),
+        default=defaults.env_kind,
+    )
+    parser.add_argument("--learner", default=defaults.learner)
+    parser.add_argument(
+        "--opponent",
+        action="append",
+        default=[],
+        metavar="ID=PATH",
+        help="Frozen opponent policy, e.g. qb=runs/ppo/final_model.zip. Repeatable.",
+    )
     parser.add_argument(
         "--scenarios",
         default=None,
@@ -237,11 +351,19 @@ def main(argv: list[str] | None = None) -> None:
         if args.scenarios
         else ()
     )
+    opponents: list[tuple[str, str]] = []
+    for entry in args.opponent:
+        parts = entry.split("=", 1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            parser.error(f"--opponent expects ID=PATH, got {entry!r}")
+        opponents.append((parts[0], parts[1]))
 
     config = PPOConfig(
         run_name=args.run_name,
         scenario=args.scenario,
         env_kind=args.env,
+        learner=args.learner,
+        opponents=tuple(opponents),
         scenarios=scenarios,
         total_timesteps=args.timesteps,
         seed=args.seed,

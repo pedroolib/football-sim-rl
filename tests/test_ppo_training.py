@@ -208,3 +208,66 @@ def test_build_env_rejects_unknown_env_kind() -> None:
 
     with pytest.raises(ValueError):
         build_env(("rushed",), env_kind="driv")
+
+
+def test_role_play_training_smoke(tmp_path) -> None:
+    from qb_sim.training.role_context_observations import RECEIVER_CONTEXT_OBSERVATION_SIZE
+
+    config = PPOConfig(
+        run_name="role-play-run",
+        env_kind="role_play",
+        scenario="stage_b",
+        learner="wr1",
+        total_timesteps=128,
+        seed=0,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=1,
+        imitation_episodes=1,
+        imitation_epochs=2,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    _, final_path = train(config)
+
+    metadata = json.loads((tmp_path / "role-play-run" / "config.json").read_text())
+    assert metadata["env_kind"] == "role_play"
+    assert metadata["learner"] == "wr1"
+    assert metadata["observation_size"] == RECEIVER_CONTEXT_OBSERVATION_SIZE
+    assert metadata["fatigue"]["carrier_fatigue_per_second"] > 0.0
+
+    loaded = PPO.load(final_path, device="cpu")
+    assert loaded.observation_space.shape == (RECEIVER_CONTEXT_OBSERVATION_SIZE,)
+
+
+def test_role_drive_training_smoke(tmp_path) -> None:
+    config = PPOConfig(
+        run_name="role-drive-run",
+        env_kind="role_drive",
+        scenario="stage_b",
+        learner="cb1",
+        total_timesteps=128,
+        seed=0,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=1,
+        imitation_episodes=1,
+        imitation_epochs=2,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    _, final_path = train(config)
+
+    metadata = json.loads((tmp_path / "role-drive-run" / "config.json").read_text())
+    assert metadata["observation_size"] == 24
+    assert metadata["learner"] == "cb1"
