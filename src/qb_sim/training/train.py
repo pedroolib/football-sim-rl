@@ -219,6 +219,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--attempt-decay-steps", type=int, default=defaults.attempt_decay_steps)
     parser.add_argument("--imitation-episodes", type=int, default=defaults.imitation_episodes)
     parser.add_argument("--imitation-epochs", type=int, default=defaults.imitation_epochs)
+    parser.add_argument(
+        "--imitation-learning-rate",
+        type=float,
+        default=defaults.imitation_learning_rate,
+    )
     parser.add_argument("--n-envs", type=int, default=defaults.n_envs)
     parser.add_argument("--device", default=defaults.device)
     parser.add_argument("--resume", default=None)
@@ -243,6 +248,7 @@ def main(argv: list[str] | None = None) -> None:
         attempt_decay_steps=args.attempt_decay_steps,
         imitation_episodes=args.imitation_episodes,
         imitation_epochs=args.imitation_epochs,
+        imitation_learning_rate=args.imitation_learning_rate,
         output_dir=args.output_dir,
         device=args.device,
     )
