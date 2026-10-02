@@ -4,8 +4,9 @@ from gymnasium.utils.env_checker import check_env
 
 from qb_sim.engine.actions import Throw
 from qb_sim.engine.entities import BallStatus
+from qb_sim.rules.drive import DriveConfig
 from qb_sim.training.role_context_observations import RECEIVER_CONTEXT_OBSERVATION_SIZE
-from qb_sim.training.role_env import RolePlayEnv
+from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
 
 
 def _noop() -> np.ndarray:
@@ -104,3 +105,63 @@ def test_role_play_trajectory_is_deterministic() -> None:
         np.testing.assert_allclose(first_observation, second_observation)
         assert first_reward == pytest.approx(second_reward)
         assert (first_term, first_trunc) == (second_term, second_trunc)
+
+
+def _sack_scenario():
+    from dataclasses import replace
+
+    from qb_sim.config import SimulationConfig
+    from qb_sim.rules.routes import RouteName
+    from qb_sim.rules.scenarios import Scenario
+
+    zero = replace(
+        SimulationConfig(),
+        throw_base_sigma_degrees=0.0,
+        throw_move_penalty=0.0,
+        throw_pressure_penalty=0.0,
+        throw_distance_penalty=0.0,
+        throw_power_sigma=0.0,
+        defender_starts=((20.5, 26.65), (0.0, 0.0)),
+        rusher_starts=((0.0, 0.0),),
+    )
+    return Scenario("test-sack", zero, (RouteName.POST, RouteName.SLANT))
+
+
+def test_role_drive_spaces_and_checker() -> None:
+    env = RoleDriveEnv(
+        _sack_scenario(),
+        learner_id="cb1",
+        drive_config=DriveConfig(los_range=(20.0, 20.0)),
+    )
+    observation, info = env.reset(seed=0)
+
+    assert env.observation_space.shape == (24,)
+    assert env.observation_space.contains(observation)
+    assert info["down"] == 1
+
+    check_env(env)
+
+
+def test_role_drive_defender_reward_is_zero_sum() -> None:
+    env = RoleDriveEnv(
+        _sack_scenario(),
+        learner_id="cb1",
+        drive_config=DriveConfig(los_range=(20.0, 20.0)),
+    )
+    env.reset(seed=0)
+    total = 0.0
+    terminated = truncated = False
+    while not (terminated or truncated):
+        _, reward, terminated, truncated, _ = env.step(np.zeros(2, dtype=np.float32))
+        total += reward
+    assert total > 0.0  # three sacks are worth +1 each for the defense
+
+
+def test_role_drive_is_deterministic_for_a_seed() -> None:
+    config = DriveConfig(los_range=(20.0, 20.0))
+    first = RoleDriveEnv(_sack_scenario(), learner_id="ru1", drive_config=config)
+    second = RoleDriveEnv(_sack_scenario(), learner_id="ru1", drive_config=config)
+    first_observation, _ = first.reset(seed=3)
+    second_observation, _ = second.reset(seed=3)
+
+    np.testing.assert_allclose(first_observation, second_observation)
