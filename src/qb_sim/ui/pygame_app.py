@@ -1,5 +1,6 @@
 """Interactive Pygame shell over PlaySession."""
 
+import argparse
 from collections.abc import Mapping, Sequence
 
 import pygame
@@ -7,6 +8,7 @@ import pygame
 from qb_sim.engine.geometry import distance, vec2
 from qb_sim.engine.physics import arc_peak
 from qb_sim.rules.play import Play
+from qb_sim.rules.scenarios import SCENARIOS, get_scenario
 from qb_sim.ui.rendering import (
     draw_aim,
     draw_ball,
@@ -151,9 +153,26 @@ class PygameApp:
         pygame.quit()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Entry point for ``python -m qb_sim.ui.pygame_app``."""
-    PygameApp().run()
+    parser = argparse.ArgumentParser(description="QB Lab visualizer")
+    parser.add_argument("--model", default=None, help="Path to a trained PPO model (.zip)")
+    parser.add_argument("--scenario", default="default", choices=sorted(SCENARIOS))
+    args = parser.parse_args(argv)
+
+    if args.model:
+        from qb_sim.training.policy import load_policy
+
+        scenario = get_scenario(args.scenario)
+        policy = load_policy(args.model, args.scenario)
+        session = PlaySession(
+            Play(scenario.config),
+            routes=scenario.receiver_routes,
+            quarterback_policy=policy,
+        )
+    else:
+        session = PlaySession()
+    PygameApp(session).run()
 
 
 if __name__ == "__main__":

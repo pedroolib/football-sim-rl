@@ -1,5 +1,6 @@
 """Headless play session shared by the Pygame app and tests."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -13,6 +14,8 @@ from qb_sim.engine.geometry import Vector2
 from qb_sim.rules.play import Play
 from qb_sim.rules.routes import Route, RouteName
 from qb_sim.ui.controls import Aim, aim_from_drag, direction_from_keys
+
+QuarterbackPolicy = Callable[[PlayState], Move | Throw | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +42,11 @@ class PlaySession:
         self,
         play: Play | None = None,
         routes: tuple[RouteName, ...] = (RouteName.POST, RouteName.SLANT),
+        quarterback_policy: QuarterbackPolicy | None = None,
     ) -> None:
         self.play = play if play is not None else Play()
         self._routes = tuple(RouteName(route) for route in routes)
+        self._quarterback_policy = quarterback_policy
         self._agents: dict[str, BaseAgent] = {}
         self._receiver_routes: dict[str, Route] = {}
         self._build_agents()
@@ -76,8 +81,9 @@ class PlaySession:
         if "p" in frame.pressed:
             self.toggle_pause()
         self._held = frame.held
-        self._update_aim(frame)
-        self._queue_release(frame)
+        if self._quarterback_policy is None:
+            self._update_aim(frame)
+            self._queue_release(frame)
 
     def tick(self) -> PlayState:
         """Advance the simulation one fixed step using the pending input."""
@@ -88,10 +94,13 @@ class PlaySession:
             action = agent.decide(self.play.state)
             if action is not None:
                 actions[player_id] = action
-        quarterback_action = self._pending_action
-        self._pending_action = None
-        if quarterback_action is None:
-            quarterback_action = self._movement_action()
+        if self._quarterback_policy is not None:
+            quarterback_action = self._quarterback_policy(self.play.state)
+        else:
+            quarterback_action = self._pending_action
+            self._pending_action = None
+            if quarterback_action is None:
+                quarterback_action = self._movement_action()
         if quarterback_action is not None:
             actions["qb"] = quarterback_action
         return self.play.step(actions)

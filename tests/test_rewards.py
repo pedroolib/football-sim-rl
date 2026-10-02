@@ -31,3 +31,12 @@ def test_each_outcome_maps_to_its_coefficient() -> None:
 
 def test_in_progress_has_no_terminal_reward() -> None:
     assert terminal_reward(PlayOutcome.IN_PROGRESS, yards=5.0, config=RewardConfig()) == 0.0
+
+
+def test_stalling_is_worse_than_an_incomplete_attempt() -> None:
+    config = RewardConfig()
+
+    stalling = config.time_limit + config.time_penalty * 120
+    attempt = config.incompletion + config.time_penalty * 40
+
+    assert stalling < attempt

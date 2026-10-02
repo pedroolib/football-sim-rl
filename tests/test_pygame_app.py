@@ -127,6 +127,25 @@ def test_run_loop_does_not_drop_input_between_ticks(dummy_video, monkeypatch) ->
         app.close()
 
 
+def test_app_can_run_with_a_policy_quarterback(dummy_video) -> None:
+    from qb_sim.training.policy import PolicyQuarterback
+
+    class _StubModel:
+        def predict(self, observation, deterministic: bool = True):
+            return np.array([0.0, 0.0, 1.0, 0.0, 1.0, 1.0], dtype=np.float32), None
+
+    play = Play()
+    session = PlaySession(play, quarterback_policy=PolicyQuarterback(_StubModel(), play.config))
+    app = PygameApp(session)
+    try:
+        app.step(FrameInput())
+        app.draw_frame()
+
+        assert play.state.ball.status is BallStatus.IN_FLIGHT
+    finally:
+        app.close()
+
+
 def test_module_entry_point_runs_the_loop(dummy_video) -> None:
     env = os.environ.copy()
     env["SDL_VIDEODRIVER"] = "dummy"

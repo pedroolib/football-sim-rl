@@ -13,9 +13,10 @@ class RewardConfig:
     interception: float = -1.0
     incompletion: float = -0.2
     out_of_bounds: float = -0.2
-    time_limit: float = -0.1
+    time_limit: float = -0.5
     yard: float = 0.02
-    time_penalty: float = -0.001
+    time_penalty: float = -0.002
+    attempt: float = 0.1
 
 
 def terminal_reward(outcome: PlayOutcome, yards: float, config: RewardConfig) -> float:

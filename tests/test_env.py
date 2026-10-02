@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import gymnasium as gym
 import numpy as np
+import pytest
 from gymnasium.utils.env_checker import check_env
 
 from qb_sim.config import SimulationConfig
@@ -126,6 +127,24 @@ def test_triggered_throw_launches_the_ball() -> None:
 
     assert env.play.state.ball.status is BallStatus.IN_FLIGHT
     assert info["throw_time"] == 0.0
+
+
+def test_throw_attempt_adds_shaping_to_the_step_reward() -> None:
+    env = QBPassingEnv()
+    env.reset(seed=0)
+
+    _, reward, _, _, _ = env.step(np.array([0.0, 0.0, 1.0, 0.0, 0.5, 1.0], dtype=np.float32))
+
+    assert reward == pytest.approx(0.1 - 0.002)
+
+
+def test_noop_step_only_pays_the_time_penalty() -> None:
+    env = QBPassingEnv()
+    env.reset(seed=0)
+
+    _, reward, _, _, _ = env.step(_noop())
+
+    assert reward == pytest.approx(-0.002)
 
 
 def test_completion_episode_has_positive_total_reward() -> None:
