@@ -285,6 +285,8 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         self._episode_seed = self.scenario.seed
         self._pressure_at_throw: float | None = None
         self._arrival_time: float | None = None
+        self._separation_allowed_throw: float | None = None
+        self._separation_allowed_catch: float | None = None
         self._build_agents()
 
     def _build_agents(self) -> None:
@@ -317,6 +319,8 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         self._build_agents()
         self._pressure_at_throw = None
         self._arrival_time = None
+        self._separation_allowed_throw = None
+        self._separation_allowed_catch = None
 
     def rule_agent(self, player_id: str) -> BaseAgent:
         return self._agents[player_id]
@@ -335,6 +339,8 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         self,
         action: np.ndarray,
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        if self.drive.state.terminated:
+            raise RuntimeError("the drive episode is over; call reset()")
         engine_actions: dict[str, Move | Throw] = {}
         actors: dict[str, Any] = {**self._agents, **self.opponents}
         for player_id, policy in actors.items():
@@ -383,6 +389,8 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
                     "coverage_sack": result.coverage_sack,
                     "pressure_at_throw": self._pressure_at_throw,
                     "arrival_time": self._arrival_time,
+                    "separation_allowed_throw": self._separation_allowed_throw,
+                    "separation_allowed_catch": self._separation_allowed_catch,
                 }
             )
             terminated = self.drive.state.terminated
@@ -398,14 +406,30 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
     def _track_diagnostics(self, state) -> None:
         if self._pressure_at_throw is None and state.throw_time is not None:
             self._pressure_at_throw = float(state.pressure)
-        if self._arrival_time is None and self.learner_id in self.play.rusher_ids:
-            quarterback = state.player("qb")
-            rusher = state.player(self.learner_id)
-            distance_to_quarterback = float(
-                np.linalg.norm(rusher.position - quarterback.position)
-            )
-            if distance_to_quarterback <= self.scenario.config.tackle_radius:
-                self._arrival_time = float(state.elapsed_seconds)
+        if self.learner_id in self.play.rusher_ids:
+            if self._arrival_time is None:
+                quarterback = state.player("qb")
+                rusher = state.player(self.learner_id)
+                distance_to_quarterback = float(
+                    np.linalg.norm(rusher.position - quarterback.position)
+                )
+                if distance_to_quarterback <= self.scenario.config.tackle_radius:
+                    self._arrival_time = float(state.elapsed_seconds)
+            return
+        if self.learner_id not in self.play.defender_ids:
+            return
+        target_id = defender_target(self.play, self.learner_id)
+        if target_id is None:
+            return
+        if self._separation_allowed_throw is None and state.throw_time is not None:
+            self._separation_allowed_throw = self._target_separation(state, target_id)
+        if self._separation_allowed_catch is None and state.carrier_id is not None:
+            self._separation_allowed_catch = self._target_separation(state, target_id)
+
+    def _target_separation(self, state, target_id: str) -> float:
+        learner = state.player(self.learner_id)
+        target = state.player(target_id)
+        return float(np.linalg.norm(learner.position - target.position))
 
     def _info(self) -> dict[str, Any]:
         return {

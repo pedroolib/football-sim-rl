@@ -149,12 +149,56 @@ def test_role_drive_defender_reward_is_zero_sum() -> None:
         drive_config=DriveConfig(los_range=(20.0, 20.0)),
     )
     env.reset(seed=0)
-    total = 0.0
+    rewards: list[float] = []
     terminated = truncated = False
     while not (terminated or truncated):
         _, reward, terminated, truncated, _ = env.step(np.zeros(2, dtype=np.float32))
-        total += reward
-    assert total > 0.0  # three sacks are worth +1 each for the defense
+        rewards.append(reward)
+    # Sacks pay the defense +1 each; the final play also pays the turnover penalty.
+    assert rewards == pytest.approx([1.0, 1.0, 1.5])
+    assert sum(rewards) == pytest.approx(3.5)
+
+    ongoing = RoleDriveEnv(learner_id="cb1")
+    ongoing.reset(seed=0)
+    _, reward, terminated, truncated, _ = ongoing.step(np.zeros(2, dtype=np.float32))
+    assert not (terminated or truncated)
+    assert reward == 0.0
+
+
+def test_role_drive_step_after_termination_raises() -> None:
+    env = RoleDriveEnv(
+        _sack_scenario(),
+        learner_id="cb1",
+        drive_config=DriveConfig(los_range=(20.0, 20.0)),
+    )
+    env.reset(seed=0)
+    terminated = truncated = False
+    while not (terminated or truncated):
+        _, _, terminated, truncated, _ = env.step(np.zeros(2, dtype=np.float32))
+
+    with pytest.raises(RuntimeError):
+        env.step(np.zeros(2, dtype=np.float32))
+
+
+def test_role_drive_records_separation_allowed_at_throw() -> None:
+    def qb(state, routes, drive_state):
+        if state.ball.status is not BallStatus.HELD or state.elapsed_seconds == 0.0:
+            return None
+        return Throw(direction=np.array([1.0, 0.0]), power=1.0)
+
+    env = RoleDriveEnv(learner_id="cb1", opponents={"qb": qb})
+    env.reset(seed=4)
+    terminated = truncated = False
+    while not (terminated or truncated):
+        _, _, terminated, truncated, info = env.step(np.zeros(2, dtype=np.float32))
+
+    separations = [
+        play["separation_allowed_throw"]
+        for play in info["plays"]
+        if play["separation_allowed_throw"] is not None
+    ]
+    assert separations
+    assert all(np.isfinite(value) for value in separations)
 
 
 def test_role_drive_is_deterministic_for_a_seed() -> None:
@@ -165,3 +209,20 @@ def test_role_drive_is_deterministic_for_a_seed() -> None:
     second_observation, _ = second.reset(seed=3)
 
     np.testing.assert_allclose(first_observation, second_observation)
+
+
+def test_role_drive_trajectory_is_deterministic() -> None:
+    first = RoleDriveEnv(learner_id="cb1")
+    second = RoleDriveEnv(learner_id="cb1")
+    first_observation, _ = first.reset(seed=11)
+    second_observation, _ = second.reset(seed=11)
+    actions = [
+        np.array([1.0, 0.0], dtype=np.float32),
+        np.array([0.0, 1.0], dtype=np.float32),
+    ] * 5
+    for action in actions:
+        first_observation, first_reward, first_term, first_trunc, _ = first.step(action)
+        second_observation, second_reward, second_term, second_trunc, _ = second.step(action)
+        np.testing.assert_allclose(first_observation, second_observation)
+        assert first_reward == pytest.approx(second_reward)
+        assert (first_term, first_trunc) == (second_term, second_trunc)
