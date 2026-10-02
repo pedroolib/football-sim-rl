@@ -67,7 +67,7 @@ class PygameApp:
         state = self.session.play.state
         aim = self.session.aim_preview
         draw_field(self.screen, self.view)
-        draw_routes(self.screen, self.session.play, self.view)
+        draw_routes(self.screen, self.session.routes, state, self.view)
         draw_players(self.screen, state, self.view)
         if aim is not None:
             peak = arc_peak(

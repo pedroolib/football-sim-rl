@@ -26,14 +26,27 @@ ruff format --check .
 
 ## Public API
 
-- `Play(config=None, routes=(RouteName.POST, RouteName.SLANT), seed=0)`: one repeatable play with a quarterback (`qb`), two receivers (`wr1`, `wr2`) with one route each, and two defenders (`cb1`, `cb2`) covering the receiver with the same index. The local seeded NumPy generator drives contextual throw deviation.
-- `Play.reset(seed=None)`: restores the roster, starting positions, and route progress; passing a seed re-seeds the generator, omitting it keeps advancing the sequence so episodes vary.
-- `Play.step(qb_action=None)`: advances one fixed tick and returns the `PlayState`; actions do not persist between ticks and terminal states do not advance again.
-- `Move(direction)`: moves the quarterback in a direction of magnitude at most 1.
-- `Throw(direction, power=1.0)`: throws at an angle with a force fraction in `[0, 1]`; `power` maps to a landing range between `throw_min_range` and `throw_max_range`. This `(angle, force)` representation is what a human drag gesture produces and what an RL policy can learn directly.
+- `Play(config=None, seed=0)`: the mechanical rules engine for one play with a quarterback (`qb`), two receivers (`wr1`, `wr2`), and two defenders (`cb1`, `cb2`). It only applies actions and resolves physics; decisions live in agents. The local seeded NumPy generator drives contextual throw deviation.
+- `Play.reset(seed=None)`: restores the roster and starting positions; passing a seed re-seeds the generator, omitting it keeps advancing the sequence so episodes vary.
+- `Play.step(actions=None)`: advances one fixed tick applying a `Mapping[str, Move | Throw]` keyed by player id. Actions do not persist between ticks, a missing action means standing still, unknown players and actions not allowed for a role raise `ValueError`, and terminal states do not advance again.
+- `Move(direction)`: moves a player in a direction of magnitude at most 1 (speed depends on the role).
+- `Throw(direction, power=1.0)`: quarterback-only throw at an angle with a force fraction in `[0, 1]`; `power` maps to a landing range between `throw_min_range` and `throw_max_range`. This `(angle, force)` representation is what a human drag gesture produces and what an RL policy can learn directly.
 - `Play.throw_to(target, power=None)` and `Play.throw_with_lead(lead_seconds, player_id="wr1", power=None)` are immediate shortcuts that derive the angle from a field point (and the power from its distance when omitted).
-- `PlayState.players` + `PlayState.player(player_id)`: roster state by stable id; `carrier_id` identifies the ball carrier; `pressure` exposes the 0..1 pressure from the nearest defender.
+- `PlayState.players` + `PlayState.player(player_id)`: roster state by stable id; `carrier_id` identifies the ball carrier; `pressure` exposes the 0..1 pressure from the nearest defender; `throw_time` records when the ball was released.
 - `PlayOutcome`: `IN_PROGRESS`, `COMPLETED`, `INTERCEPTION`, `INCOMPLETE`, `OUT_OF_BOUNDS`, or `TIME_LIMIT`.
+
+## Agents and scenarios
+
+- `agents.base.BaseAgent` is the common interface: one instance per player with `observe(state)`, `act(observation)`, and `decide(state)`. Observations are frozen dataclasses with role-local information only.
+- `agents.rule_controllers` provides `ReceiverRouteController`, `ManCoverageController`, and `HeuristicQuarterback`; learned policies will implement the same interface.
+- `rules.scenarios.Scenario` bundles config, routes, and a base seed; `default`, `pressured`, and `deep` are available through `get_scenario`.
+- `agents.loop.run_play(...)` and `run_series(...)` run reproducible headless plays; `run_play(..., recorder=PlayRecorder())` writes a JSONL trace.
+
+## Recording, replay, and metrics
+
+- `recording.PlayRecorder` writes a JSONL header (seed, scenario, config, routes), one line per tick with per-player actions, and a final result line; `recording.replay(record)` rebuilds the play from the seed and actions and raises `ValueError` if the trace diverges.
+- `metrics.summarize(results, line_of_scrimmage)` aggregates completion/interception/incompletion percentages, yards per attempt and per completion, average time to throw, and average duration.
+- `python scripts/rule_baseline_report.py` prints reproducible baseline metrics per scenario; `python scripts/accuracy_report.py` covers throw-accuracy calibration.
 
 Play rules: after a catch the ball becomes `CARRIED`, the receiver runs downfield, and the play ends when any defender touches the carrier (`tackle_radius`), the carrier leaves the field, or time expires (still `COMPLETED`). An interception ends the play immediately. There is no automatic receiver selection or catch assistance.
 

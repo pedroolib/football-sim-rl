@@ -37,6 +37,10 @@ class Route:
         """Waypoints not yet reached, for read-only visualization."""
         return self.waypoints[self._active_index :]
 
+    def reset(self) -> None:
+        """Restart the route from its first waypoint."""
+        self._active_index = 0
+
     def advance(self, position: Vector2, max_distance: float) -> tuple[Vector2, bool]:
         """Move along waypoints by at most ``max_distance`` yards."""
         if max_distance < 0.0:

@@ -9,12 +9,14 @@ from dataclasses import replace
 
 import numpy as np
 
+from qb_sim.agents.loop import build_rule_agents
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.engine.geometry import distance, vec2
 from qb_sim.rules.accuracy import throw_spread
 from qb_sim.rules.play import Play
+from qb_sim.rules.routes import RouteName
 
 SEEDS = range(200)
 INTENDED_DIRECTION = vec2(1.0, 0.0)
@@ -45,7 +47,7 @@ def angle_stats(
     for seed in SEEDS:
         play = Play(scenario, seed=seed)
         if moving:
-            play.step(qb_action=Move(direction=vec2(1.0, 0.0)))
+            play.step({"qb": Move(direction=vec2(1.0, 0.0))})
         play.throw_to(vec2(target, 26.65))
         errors.append(_angle_error_degrees(play))
     print(f"{label:<28} media={np.mean(errors):6.3f}°  p95={np.percentile(errors, 95):6.3f}°")
@@ -64,16 +66,32 @@ def outcome_distribution(
     counts: dict[str, int] = {}
     for seed in SEEDS:
         play = Play(scenario, seed=seed)
+        agents = build_rule_agents(
+            play,
+            (RouteName.POST, RouteName.SLANT),
+            scenario,
+            include_quarterback=False,
+        )
         if moving:
-            play.step(qb_action=Move(direction=vec2(1.0, 0.0)))
-        play.step()
+            play.step({"qb": Move(direction=vec2(1.0, 0.0))})
+        actions = {}
+        for player_id, agent in agents.items():
+            action = agent.decide(play.state)
+            if action is not None:
+                actions[player_id] = action
+        play.step(actions)
         quarterback = play.state.player("qb")
         receiver = play.state.player("wr1")
         lead = distance(quarterback.position, receiver.position) / config.ball_speed
         play.throw_with_lead(lead)
         state = play.state
         for _ in range(200):
-            state = play.step()
+            actions = {}
+            for player_id, agent in agents.items():
+                action = agent.decide(play.state)
+                if action is not None:
+                    actions[player_id] = action
+            state = play.step(actions)
             if state.outcome is not PlayOutcome.IN_PROGRESS:
                 break
         counts[state.outcome.value] = counts.get(state.outcome.value, 0) + 1

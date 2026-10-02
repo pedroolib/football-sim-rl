@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from qb_sim.engine.entities import Role
 from qb_sim.engine.geometry import Vector2
 
 
@@ -48,3 +49,12 @@ class Throw:
             raise ValueError("power must be between 0 and 1")
         object.__setattr__(self, "direction", direction / length)
         object.__setattr__(self, "power", power)
+
+
+def allowed_actions(role: Role) -> tuple[type, ...]:
+    """Return the action types a player with ``role`` may execute."""
+    if role is Role.QUARTERBACK:
+        return (Move, Throw)
+    if role in (Role.RECEIVER, Role.DEFENDER):
+        return (Move,)
+    raise ValueError(f"unsupported role: {role!r}")

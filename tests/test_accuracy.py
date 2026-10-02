@@ -3,12 +3,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from qb_sim.agents.loop import build_rule_agents
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move
 from qb_sim.engine.entities import BallStatus, PlayOutcome
 from qb_sim.engine.geometry import distance, vec2
 from qb_sim.rules.accuracy import pressure_from_defenders, throw_spread
 from qb_sim.rules.play import Play
+from qb_sim.rules.routes import RouteName
 
 ZERO_DEVIATION = replace(
     SimulationConfig(),
@@ -53,7 +55,7 @@ def _mean_angle_error(
     for seed in seeds:
         play = Play(scenario, seed=seed)
         if moving:
-            play.step(qb_action=Move(direction=vec2(1.0, 0.0)))
+            play.step({"qb": Move(direction=vec2(1.0, 0.0))})
         play.throw_to(vec2(target, 26.65))
         errors.append(_angle_error_degrees(play, vec2(1.0, 0.0)))
     return float(np.mean(errors))
@@ -169,7 +171,7 @@ def test_noise_shifts_the_target_but_resolution_still_uses_physics() -> None:
         throw_base_sigma_degrees=20.0,
     )
     play = Play(config, seed=0)
-    play.step()
+    agents = build_rule_agents(play, (RouteName.POST, RouteName.SLANT), include_quarterback=False)
     receiver = play.state.player("wr1")
     intended_target = receiver.position + receiver.velocity * 0.4
 
@@ -179,7 +181,12 @@ def test_noise_shifts_the_target_but_resolution_still_uses_physics() -> None:
 
     state = play.state
     for _ in range(200):
-        state = play.step()
+        actions = {}
+        for player_id, agent in agents.items():
+            action = agent.decide(play.state)
+            if action is not None:
+                actions[player_id] = action
+        state = play.step(actions)
         if state.outcome is not PlayOutcome.IN_PROGRESS:
             break
 

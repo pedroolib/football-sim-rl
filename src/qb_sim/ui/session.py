@@ -4,10 +4,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from qb_sim.agents.base import BaseAgent
+from qb_sim.agents.loop import build_rule_agents
+from qb_sim.agents.rule_controllers import ReceiverRouteController
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import BallStatus, PlayOutcome, PlayState
 from qb_sim.engine.geometry import Vector2
 from qb_sim.rules.play import Play
+from qb_sim.rules.routes import Route, RouteName
 from qb_sim.ui.controls import Aim, aim_from_drag, direction_from_keys
 
 
@@ -31,13 +35,39 @@ class PlaySession:
     when a fixed simulation step is due, so one-shot inputs are never dropped.
     """
 
-    def __init__(self, play: Play | None = None) -> None:
+    def __init__(
+        self,
+        play: Play | None = None,
+        routes: tuple[RouteName, ...] = (RouteName.POST, RouteName.SLANT),
+    ) -> None:
         self.play = play if play is not None else Play()
+        self._routes = tuple(RouteName(route) for route in routes)
+        self._agents: dict[str, BaseAgent] = {}
+        self._receiver_routes: dict[str, Route] = {}
+        self._build_agents()
         self.paused = False
         self.aim_preview: Aim | None = None
         self._press_field: Vector2 | None = None
         self._held: frozenset[str] = frozenset()
         self._pending_action: Move | Throw | None = None
+
+    def _build_agents(self) -> None:
+        self._agents = build_rule_agents(
+            self.play,
+            self._routes,
+            self.play.config,
+            include_quarterback=False,
+        )
+        self._receiver_routes = {
+            player_id: agent.route
+            for player_id, agent in self._agents.items()
+            if isinstance(agent, ReceiverRouteController)
+        }
+
+    @property
+    def routes(self) -> dict[str, Route]:
+        """Receiver routes in roster order, for visualization."""
+        return self._receiver_routes
 
     def handle_frame(self, frame: FrameInput) -> None:
         """Process one frame of raw input without advancing the simulation."""
@@ -53,11 +83,18 @@ class PlaySession:
         """Advance the simulation one fixed step using the pending input."""
         if self.paused:
             return self.play.state
-        action = self._pending_action
+        actions: dict[str, Move | Throw] = {}
+        for player_id, agent in self._agents.items():
+            action = agent.decide(self.play.state)
+            if action is not None:
+                actions[player_id] = action
+        quarterback_action = self._pending_action
         self._pending_action = None
-        if action is None:
-            action = self._movement_action()
-        return self.play.step(action)
+        if quarterback_action is None:
+            quarterback_action = self._movement_action()
+        if quarterback_action is not None:
+            actions["qb"] = quarterback_action
+        return self.play.step(actions)
 
     def step_frame(self, frame: FrameInput) -> PlayState:
         """Process one frame and advance one tick; convenient for tests."""
@@ -69,12 +106,14 @@ class PlaySession:
         self.paused = not self.paused
 
     def restart(self) -> PlayState:
-        """Reset the play, the aim gesture, and the pause state."""
+        """Reset the play, the aim gesture, the pause state, and the agents."""
         self.paused = False
         self.aim_preview = None
         self._press_field = None
         self._pending_action = None
-        return self.play.reset()
+        state = self.play.reset()
+        self._build_agents()
+        return state
 
     def _can_aim(self) -> bool:
         state = self.play.state

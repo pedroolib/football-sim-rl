@@ -1,12 +1,13 @@
-"""Orchestration for one deterministic, fixed-step passing play."""
+"""Mechanical play rules: apply per-player actions and resolve physics events."""
 
+from collections.abc import Mapping
 from math import isfinite
 from typing import NamedTuple
 
 import numpy as np
 
 from qb_sim.config import SimulationConfig
-from qb_sim.engine.actions import Move, Throw
+from qb_sim.engine.actions import Move, Throw, allowed_actions
 from qb_sim.engine.entities import (
     BallState,
     BallStatus,
@@ -20,12 +21,10 @@ from qb_sim.engine.physics import (
     advance_ball,
     arc_peak,
     ball_height_at,
-    move_toward,
     moving_circle_contact_fraction,
     segment_field_exit_fraction,
 )
 from qb_sim.rules.accuracy import pressure_from_defenders, throw_spread
-from qb_sim.rules.routes import Route, RouteName, build_route
 
 _QB_ID = "qb"
 
@@ -40,29 +39,23 @@ class _PassEvent(NamedTuple):
 
 
 class Play:
-    """Advance a human or scripted offense against a basic man defense."""
+    """Apply per-player actions and resolve the rules of one passing play."""
 
     def __init__(
         self,
         config: SimulationConfig | None = None,
-        routes: tuple[RouteName, ...] = (RouteName.POST, RouteName.SLANT),
         seed: int = 0,
     ) -> None:
         self.config = config if config is not None else SimulationConfig()
-        self.routes = tuple(RouteName(route) for route in routes)
-        if len(self.routes) != len(self.config.receiver_starts):
-            raise ValueError("a route is required for each receiver")
         self.seed = int(seed)
         self._rng = np.random.default_rng(self.seed)
-        self._player_routes: list[Route] = []
         self._receiver_ids: list[str] = []
         self._defender_ids: list[str] = []
-        self._coverage: list[str] = []
         self.state: PlayState
         self.reset()
 
     def reset(self, seed: int | None = None) -> PlayState:
-        """Restore the roster and routes; re-seed only when ``seed`` is given."""
+        """Restore the roster; re-seed the generator only when ``seed`` is given."""
         if seed is not None:
             self.seed = int(seed)
             self._rng = np.random.default_rng(self.seed)
@@ -70,11 +63,8 @@ class Play:
         players = [
             PlayerState(quarterback_position.copy(), vec2(0.0, 0.0), Role.QUARTERBACK, _QB_ID)
         ]
-        receiver_positions: list[Vector2] = []
         for index, start in enumerate(self.config.receiver_starts, start=1):
-            position = vec2(*start)
-            receiver_positions.append(position)
-            players.append(PlayerState(position, vec2(0.0, 0.0), Role.RECEIVER, f"wr{index}"))
+            players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.RECEIVER, f"wr{index}"))
         for index, start in enumerate(self.config.defender_starts, start=1):
             players.append(PlayerState(vec2(*start), vec2(0.0, 0.0), Role.DEFENDER, f"cb{index}"))
 
@@ -82,20 +72,24 @@ class Play:
             players=players,
             ball=BallState(position=quarterback_position.copy(), velocity=vec2(0.0, 0.0)),
         )
-        self._receiver_ids = [f"wr{index}" for index in range(1, len(receiver_positions) + 1)]
+        self._receiver_ids = [
+            f"wr{index}" for index in range(1, len(self.config.receiver_starts) + 1)
+        ]
         self._defender_ids = [
             f"cb{index}" for index in range(1, len(self.config.defender_starts) + 1)
         ]
-        self._coverage = [
-            self._receiver_ids[index % len(self._receiver_ids)]
-            for index in range(len(self._defender_ids))
-        ]
-        self._player_routes = [
-            build_route(route, position, self.config.field, self.config)
-            for route, position in zip(self.routes, receiver_positions, strict=True)
-        ]
         self.state.pressure = self.pressure_on_quarterback()
         return self.state
+
+    @property
+    def receiver_ids(self) -> tuple[str, ...]:
+        """Stable receiver identifiers in roster order."""
+        return tuple(self._receiver_ids)
+
+    @property
+    def defender_ids(self) -> tuple[str, ...]:
+        """Stable defender identifiers in roster order."""
+        return tuple(self._defender_ids)
 
     def pressure_on_quarterback(self) -> float:
         """Return 0..1 pressure from the nearest defender within ``pressure_radius``."""
@@ -121,16 +115,6 @@ class Play:
             power = (target_distance - self.config.throw_min_range) / span
             power = min(max(power, 0.0), 1.0)
         self._launch_throw(offset / target_distance, power)
-
-    @property
-    def receiver_ids(self) -> tuple[str, ...]:
-        """Stable receiver identifiers in roster order."""
-        return tuple(self._receiver_ids)
-
-    @property
-    def receiver_routes(self) -> tuple[Route, ...]:
-        """Route objects in the same order as :attr:`receiver_ids`."""
-        return tuple(self._player_routes)
 
     def throw_with_lead(
         self,
@@ -183,9 +167,10 @@ class Play:
         )
         self.state.ball.height = 0.0
         self.state.ball.status = BallStatus.IN_FLIGHT
+        self.state.throw_time = self.state.elapsed_seconds
 
-    def step(self, qb_action: Move | Throw | None = None) -> PlayState:
-        """Advance one fixed time step and resolve any terminal play event."""
+    def step(self, actions: Mapping[str, Move | Throw] | None = None) -> PlayState:
+        """Apply one tick of per-player actions and resolve terminal events."""
         if self.state.outcome is not PlayOutcome.IN_PROGRESS:
             return self.state
 
@@ -195,22 +180,19 @@ class Play:
             return self.state
         dt = min(self.config.dt, remaining_time)
 
-        if qb_action is not None:
-            self._apply_quarterback_action(qb_action, dt)
-
         previous_positions = {
             player.player_id: player.position.copy() for player in self.state.players
         }
+        self._apply_actions(actions or {}, dt)
+
         tick_fraction = 1.0
         if self.state.carrier_id is not None:
-            self._advance_carrier(dt)
-            self._advance_defenders(dt)
+            carrier = self.state.player(self.state.carrier_id)
+            self.state.ball.position = carrier.position.copy()
+            self.state.ball.height = 0.0
             self._resolve_carrier_events()
-        else:
-            self._advance_receivers(dt)
-            self._advance_defenders(dt)
-            if self.state.ball.status is BallStatus.IN_FLIGHT:
-                tick_fraction = self._advance_pass(dt, previous_positions)
+        elif self.state.ball.status is BallStatus.IN_FLIGHT:
+            tick_fraction = self._advance_pass(dt, previous_positions)
 
         self.state.elapsed_seconds += dt * tick_fraction
         self.state.pressure = self.pressure_on_quarterback()
@@ -221,49 +203,38 @@ class Play:
             self._finish_expired_play()
         return self.state
 
-    def _apply_quarterback_action(self, action: Move | Throw, dt: float) -> None:
+    def _apply_actions(self, actions: Mapping[str, Move | Throw], dt: float) -> None:
+        known_ids = {player.player_id for player in self.state.players}
+        unknown = sorted(set(actions) - known_ids)
+        if unknown:
+            raise ValueError(f"unknown players: {unknown}")
+        for player in self.state.players:
+            action = actions.get(player.player_id)
+            if action is not None:
+                self._apply_action(player, action, dt)
+
+    def _apply_action(self, player: PlayerState, action: Move | Throw, dt: float) -> None:
+        if not isinstance(action, allowed_actions(player.role)):
+            raise ValueError(f"{player.player_id} cannot use {type(action).__name__}")
         if isinstance(action, Throw):
             self._launch_throw(action.direction, action.power)
             return
-        if isinstance(action, Move):
-            quarterback = self.state.player(_QB_ID)
-            previous = quarterback.position.copy()
-            new_position = self.config.field.clamp(
-                previous + action.direction * (self.config.quarterback_speed * dt)
-            )
-            quarterback.position = new_position
-            quarterback.velocity = (new_position - previous) / dt
-            return
-        raise TypeError(f"unsupported quarterback action: {type(action).__name__}")
+        speed = self._speed_for(player.role)
+        previous = player.position.copy()
+        new_position = previous + action.direction * (speed * dt)
+        if player.role is Role.QUARTERBACK:
+            new_position = self.config.field.clamp(new_position)
+        player.position = new_position
+        player.velocity = (new_position - previous) / dt
 
-    def _advance_receivers(self, dt: float) -> None:
-        for player_id, route in zip(self._receiver_ids, self._player_routes, strict=True):
-            receiver = self.state.player(player_id)
-            previous = receiver.position.copy()
-            new_position, _ = route.advance(previous, max_distance=self.config.receiver_speed * dt)
-            receiver.position = new_position
-            receiver.velocity = (new_position - previous) / dt
-
-    def _advance_defenders(self, dt: float) -> None:
-        for player_id, coverage_id in zip(self._defender_ids, self._coverage, strict=True):
-            defender = self.state.player(player_id)
-            target_id = self.state.carrier_id if self.state.carrier_id is not None else coverage_id
-            previous = defender.position.copy()
-            new_position = move_toward(
-                previous,
-                self.state.player(target_id).position,
-                max_distance=self.config.defender_speed * dt,
-            )
-            defender.position = new_position
-            defender.velocity = (new_position - previous) / dt
-
-    def _advance_carrier(self, dt: float) -> None:
-        carrier = self.state.player(self.state.carrier_id)
-        previous = carrier.position.copy()
-        new_position = previous + vec2(1.0, 0.0) * (self.config.receiver_speed * dt)
-        carrier.position = new_position
-        carrier.velocity = (new_position - previous) / dt
-        self.state.ball.position = new_position.copy()
+    def _speed_for(self, role: Role) -> float:
+        if role is Role.QUARTERBACK:
+            return self.config.quarterback_speed
+        if role is Role.RECEIVER:
+            return self.config.receiver_speed
+        if role is Role.DEFENDER:
+            return self.config.defender_speed
+        raise ValueError(f"unsupported role: {role!r}")
 
     def _resolve_carrier_events(self) -> None:
         carrier = self.state.player(self.state.carrier_id)

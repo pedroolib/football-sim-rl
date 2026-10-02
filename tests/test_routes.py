@@ -47,6 +47,17 @@ def test_inward_routes_mirror_when_receiver_starts_below_field_center() -> None:
     assert route.waypoints[1][1] > route.waypoints[0][1]
 
 
+def test_route_reset_restores_progress() -> None:
+    config = SimulationConfig()
+    start = vec2(20.0, 43.0)
+    route = build_route(RouteName.GO, start, config.field, config)
+    route.advance(start, max_distance=100.0)
+
+    route.reset()
+
+    assert len(route.remaining_waypoints) == 1
+
+
 def test_route_exposes_remaining_waypoints_after_advancing() -> None:
     config = SimulationConfig()
     start = vec2(20.0, 43.0)

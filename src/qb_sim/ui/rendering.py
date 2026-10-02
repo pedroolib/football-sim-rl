@@ -1,10 +1,12 @@
 """Read-only drawing of simulation state with Pygame."""
 
+from collections.abc import Mapping
+
 import pygame
 
 from qb_sim.engine.entities import BallStatus, PlayState, Role
 from qb_sim.engine.geometry import Vector2, vec2
-from qb_sim.rules.play import Play
+from qb_sim.rules.routes import Route
 from qb_sim.ui.controls import Aim
 from qb_sim.ui.view import ViewTransform, arc_screen_points, dash_segments
 
@@ -83,10 +85,15 @@ def draw_field(surface: pygame.Surface, view: ViewTransform) -> None:
         yard += 10.0
 
 
-def draw_routes(surface: pygame.Surface, play: Play, view: ViewTransform) -> None:
+def draw_routes(
+    surface: pygame.Surface,
+    routes: Mapping[str, Route],
+    state: PlayState,
+    view: ViewTransform,
+) -> None:
     """Draw each receiver's remaining route as a polyline."""
-    for receiver_id, route in zip(play.receiver_ids, play.receiver_routes, strict=True):
-        points = [play.state.player(receiver_id).position, *route.remaining_waypoints]
+    for player_id, route in routes.items():
+        points = [state.player(player_id).position, *route.remaining_waypoints]
         if len(points) < 2:
             continue
         pygame.draw.lines(
