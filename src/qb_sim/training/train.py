@@ -84,7 +84,7 @@ def build_opponents(env_kind: str, scenario_name: str, pairs) -> dict:
     opponents: dict = {}
     for player_id, path in pairs:
         if player_id == "qb":
-            loader = load_drive_policy if env_kind in ("drive", "role_drive") else load_policy
+            loader = load_policy if env_kind == "passing" else load_drive_policy
             opponents[player_id] = loader(path, scenario_name)
         elif player_id in ("wr1", "wr2"):
             opponents[player_id] = load_receiver_policy(path, scenario_name, player_id)

@@ -271,3 +271,24 @@ def test_role_drive_training_smoke(tmp_path) -> None:
     metadata = json.loads((tmp_path / "role-drive-run" / "config.json").read_text())
     assert metadata["observation_size"] == 24
     assert metadata["learner"] == "cb1"
+
+
+def test_role_play_qb_opponent_uses_the_drive_loader(monkeypatch) -> None:
+    from qb_sim.training import policy
+    from qb_sim.training.train import build_opponents
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        policy,
+        "load_policy",
+        lambda path, name: calls.append("passing") or object(),
+    )
+    monkeypatch.setattr(
+        policy,
+        "load_drive_policy",
+        lambda path, name: calls.append("drive") or object(),
+    )
+
+    build_opponents("role_play", "stage_b", (("qb", "model.zip"),))
+
+    assert calls == ["drive"]
