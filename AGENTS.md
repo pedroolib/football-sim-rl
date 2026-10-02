@@ -252,15 +252,15 @@ Al completar un hito:
 
 ## 11. Estado del repositorio
 
-- M1 implementado: paquete en capas `src/qb_sim/engine` (geometría, entidades, acciones híbridas `Move`/`Throw`, física) y `src/qb_sim/rules` (`Play`, rutas `go`/`slant`/`post`). Jugada determinista de pase con recepción, fase de portador, tackle de toque, intercepción, fuera de límites y límite de tiempo; 47 pruebas con pytest. Sin Gymnasium ni renderizado.
-- Pendiente del roadmap: modo humano y visualizador (M2), controladores formales (M3), entorno Gymnasium (M4), entrenamiento (M5), multiagente (M6+). Aún no hay múltiples receptores ni defensivos autónomos más allá del perseguidor provisional.
-- `docs/superpowers/plans/2026-10-01-qb-simulation-core.md` es histórico; el plan vigente del hito es `docs/superpowers/plans/2026-10-01-m1-simulation-engine.md`.
+- M1 implementado: paquete en capas `src/qb_sim/engine` (geometría, entidades, acciones híbridas `Move`/`Throw`, física) y `src/qb_sim/rules` (`Play`, rutas `go`/`slant`/`post`). Jugada determinista de pase con recepción, fase de portador, tackle de toque, intercepción, fuera de límites y límite de tiempo.
+- M2 implementado: roster de 2 receptores + 2 defensivos con identidad por jugador, cobertura individual, QB humano con movimiento y lanzamiento *drag-and-throw* estilo resortera (jalar hacia atrás y soltar; línea punteada muestra el destino; `Throw(direction, power)` es la representación `(ángulo, fuerza)` que también usará el agente), `src/qb_sim/ui` (`ViewTransform`, controles, `PlaySession` headless y app Pygame opcional con `pygame-ce`). 84 pruebas con pytest. Sin Gymnasium ni entrenamiento.
+- Pendiente del roadmap: controladores formales por reglas (M3), entorno Gymnasium (M4), entrenamiento (M5), multiagente (M6+). Las políticas de receptores y defensivos siguen siendo provisionales por guion.
+- `docs/superpowers/plans/2026-10-01-qb-simulation-core.md` es histórico; los planes vigentes son `2026-10-01-m1-simulation-engine.md` y `2026-10-01-m2-human-playable-prototype.md`.
 
 ## 12. Decisiones abiertas (requieren aprobación antes de implementar)
 
-1. **Esquema unificado de acciones:** ¿continuo/híbrido (vector de movimiento, apuntado con mouse, potencia) o discreto (esperar + leads)? Afecta motor, UI y espacios de acción de RL. Recomendación: esquema híbrido en el motor, con subespacios por rol para RL.
-2. **Alcance del primer prototipo jugable (M2):** qué roles y cuántos jugadores por bando (p. ej., QB + 2 receptores + 1 RB y 2–3 defensivos) y si el QB puede correr. Determina el tamaño del motor y de las reglas.
-3. **Regla de tackle en V0.1:** contacto/toque que termina la jugada o derribo con animación/física. Recomendación: regla de toque.
-4. **Fidelidad del pase:** trayectoria 2D recta como el prototipo actual o altura/arco desde el principio. Recomendación: 2D en M1, revisar cuando M2 lo requiera.
-5. **Formato de registro/reproducción:** JSON/JSONL con semilla y configuración, u otro formato binario. Debe cubrir acciones humanas y de agentes por igual.
-6. **Interfaz multiagente:** PettingZoo frente a API propia o entornos vectorizados de Gymnasium. Se decide en M6; en M4 conviene un adaptador delgado para no cerrar la puerta.
+1. **Fidelidad del pase:** trayectoria 2D recta como el prototipo actual o altura/arco desde el principio. Recomendación: 2D por ahora, revisar cuando la jugabilidad o el entrenamiento lo requieran.
+2. **Formato de registro/reproducción:** JSON/JSONL con semilla y configuración, u otro formato binario. Debe cubrir acciones humanas y de agentes por igual.
+3. **Interfaz multiagente:** PettingZoo frente a API propia o entornos vectorizados de Gymnasium. Se decide en M6; en M4 conviene un adaptador delgado para no cerrar la puerta.
+
+Resueltas en M2: alcance del primer prototipo jugable (QB humano + 2 receptores + 2 defensivos), esquema de acciones híbrido (`Move` y `Throw(direction, power)` como `(ángulo, fuerza)`) y regla de tackle de toque.

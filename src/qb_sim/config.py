@@ -13,12 +13,16 @@ class SimulationConfig:
     dt: float = 0.05
     max_play_duration: float = 6.0
     quarterback_start: tuple[float, float] = (20.0, 26.65)
-    receiver_start: tuple[float, float] = (20.0, 43.0)
-    defender_start: tuple[float, float] = (18.0, 43.0)
+    receiver_starts: tuple[tuple[float, float], ...] = ((20.0, 43.0), (20.0, 10.0))
+    defender_starts: tuple[tuple[float, float], ...] = ((18.0, 43.0), (18.0, 10.0))
     receiver_speed: float = 7.0
     defender_speed: float = 6.5
     quarterback_speed: float = 6.5
     ball_speed: float = 25.0
+    throw_min_range: float = 5.0
+    throw_max_range: float = 45.0
+    throw_min_drag: float = 2.0
+    throw_max_drag: float = 45.0
     catch_radius: float = 1.0
     tackle_radius: float = 1.0
     go_length_yards: float = 30.0
@@ -36,6 +40,10 @@ class SimulationConfig:
             "defender_speed": self.defender_speed,
             "quarterback_speed": self.quarterback_speed,
             "ball_speed": self.ball_speed,
+            "throw_min_range": self.throw_min_range,
+            "throw_max_range": self.throw_max_range,
+            "throw_min_drag": self.throw_min_drag,
+            "throw_max_drag": self.throw_max_drag,
             "go_length_yards": self.go_length_yards,
             "slant_break_yards": self.slant_break_yards,
             "post_break_yards": self.post_break_yards,
@@ -52,11 +60,22 @@ class SimulationConfig:
             raise ValueError("slant_angle_degrees must be between 0 and 90")
         if not 0.0 <= self.post_angle_degrees <= 90.0:
             raise ValueError("post_angle_degrees must be between 0 and 90")
+        if self.throw_max_range <= self.throw_min_range:
+            raise ValueError("throw_max_range must exceed throw_min_range")
+        if self.throw_max_drag <= self.throw_min_drag:
+            raise ValueError("throw_max_drag must exceed throw_min_drag")
 
-        for name, position in (
-            ("quarterback_start", self.quarterback_start),
-            ("receiver_start", self.receiver_start),
-            ("defender_start", self.defender_start),
-        ):
-            if len(position) != 2 or not self.field.contains(position):
-                raise ValueError(f"{name} must be a two-dimensional point inside the field")
+        if len(self.receiver_starts) == 0 or len(self.defender_starts) == 0:
+            raise ValueError("receiver_starts and defender_starts must not be empty")
+
+        start_groups = (
+            ("quarterback_start", (self.quarterback_start,)),
+            ("receiver_starts", self.receiver_starts),
+            ("defender_starts", self.defender_starts),
+        )
+        for group_name, starts in start_groups:
+            for position in starts:
+                if len(position) != 2 or not self.field.contains(position):
+                    raise ValueError(
+                        f"{group_name} must contain two-dimensional points inside the field"
+                    )

@@ -32,6 +32,11 @@ class Route:
             np.array(point, dtype=np.float64, copy=True) for point in self.waypoints
         )
 
+    @property
+    def remaining_waypoints(self) -> tuple[Vector2, ...]:
+        """Waypoints not yet reached, for read-only visualization."""
+        return self.waypoints[self._active_index :]
+
     def advance(self, position: Vector2, max_distance: float) -> tuple[Vector2, bool]:
         """Move along waypoints by at most ``max_distance`` yards."""
         if max_distance < 0.0:

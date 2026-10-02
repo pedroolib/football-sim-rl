@@ -11,6 +11,7 @@ dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.11"]
+viz = ["pygame-ce>=2.5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

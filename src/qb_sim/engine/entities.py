@@ -36,11 +36,12 @@ class Role(Enum):
 
 @dataclass(slots=True)
 class PlayerState:
-    """A player's current position and velocity in yards and yards per second."""
+    """A player's current position, velocity, role, and stable identifier."""
 
     position: Vector2
     velocity: Vector2
     role: Role | None = None
+    player_id: str = ""
 
 
 @dataclass(slots=True)
@@ -57,10 +58,15 @@ class BallState:
 class PlayState:
     """Full mutable state needed to advance or inspect a single play."""
 
-    quarterback: PlayerState
-    receiver: PlayerState
-    defender: PlayerState
+    players: list[PlayerState]
     ball: BallState
     elapsed_seconds: float = 0.0
     outcome: PlayOutcome = PlayOutcome.IN_PROGRESS
-    carrier: Role | None = None
+    carrier_id: str | None = None
+
+    def player(self, player_id: str) -> PlayerState:
+        """Return the player with ``player_id`` or raise ``KeyError``."""
+        for player in self.players:
+            if player.player_id == player_id:
+                return player
+        raise KeyError(player_id)

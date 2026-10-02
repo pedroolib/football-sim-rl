@@ -29,9 +29,22 @@ class Move:
 
 @dataclass(frozen=True, slots=True)
 class Throw:
-    """Throw the ball toward a target point in field coordinates."""
+    """Throw in a unit direction with a power fraction in ``[0, 1]``.
 
-    target: Vector2
+    Humans produce this action from a drag gesture and RL policies can learn
+    it directly as an angle plus a force percentage.
+    """
+
+    direction: Vector2
+    power: float = 1.0
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "target", _validated_point(self.target, "target"))
+        direction = _validated_point(self.direction, "direction")
+        length = float(np.linalg.norm(direction))
+        if length == 0.0:
+            raise ValueError("direction must be non-zero")
+        power = float(self.power)
+        if not bool(np.isfinite(power)) or not 0.0 <= power <= 1.0:
+            raise ValueError("power must be between 0 and 1")
+        object.__setattr__(self, "direction", direction / length)
+        object.__setattr__(self, "power", power)
