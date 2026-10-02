@@ -161,3 +161,59 @@ def test_warm_start_targets_raw_actions_not_tanh() -> None:
         means = model.policy.action_net(model.policy.mlp_extractor.policy_net(observations))
     assert _throw_direction_mse(means, dataset.actions) < 0.01
     assert _trigger_agreement(means, dataset.actions) > 0.9
+
+
+from qb_sim.training.imitation import (  # noqa: E402
+    collect_role_drive_demonstrations,
+    collect_role_play_demonstrations,
+)
+from qb_sim.training.role_context_observations import (  # noqa: E402
+    DEFENDER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_CONTEXT_OBSERVATION_SIZE,
+)
+
+
+def test_role_play_demonstrations_have_expected_shapes() -> None:
+    dataset = collect_role_play_demonstrations(
+        get_scenario("stage_b"), learner_id="wr1", episodes=1
+    )
+
+    assert dataset.observations.shape[1] == RECEIVER_CONTEXT_OBSERVATION_SIZE
+    assert dataset.actions.shape[1] == 2
+    assert len(dataset.observations) == len(dataset.actions)
+
+
+def test_role_drive_demonstrations_have_expected_shapes() -> None:
+    dataset = collect_role_drive_demonstrations(
+        get_scenario("stage_b"), learner_id="cb1", episodes=1
+    )
+
+    assert dataset.observations.shape[1] == DEFENDER_CONTEXT_OBSERVATION_SIZE
+    assert dataset.actions.shape[1] == 2
+
+
+def test_mover_behavior_cloning_loads_weights_into_a_two_action_policy() -> None:
+    pytest.importorskip("stable_baselines3")
+    from stable_baselines3 import PPO
+
+    from qb_sim.training.role_env import RolePlayEnv
+
+    scenario = get_scenario("stage_b")
+    dataset = collect_role_play_demonstrations(scenario, learner_id="wr1", episodes=1)
+    network, _ = train_behavior_cloning(dataset, epochs=2, seed=0, action_size=2)
+    model = PPO(
+        "MlpPolicy",
+        RolePlayEnv(scenario),
+        n_steps=32,
+        batch_size=16,
+        seed=0,
+        device="cpu",
+    )
+
+    warm_start_policy(model, dataset, epochs=2, seed=0, action_size=2)
+
+    observations = torch.as_tensor(dataset.observations[:16])
+    with torch.no_grad():
+        expected = network(observations)
+        loaded = model.policy.action_net(model.policy.mlp_extractor.policy_net(observations))
+    assert torch.allclose(expected, loaded, atol=1e-6)

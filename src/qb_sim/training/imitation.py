@@ -5,7 +5,7 @@ receiver). Imitating them gives PPO a starting point from which exploration of
 precise aiming is feasible.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +23,7 @@ from qb_sim.training.actions import ACTION_SIZE, encode_engine_action
 from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.drive_observations import drive_observation_from_state
 from qb_sim.training.observations import observation_from_state
+from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
 
 _STAND_ACTION = np.array([0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32)
 
@@ -212,3 +213,72 @@ def warm_start_policy(model: Any, dataset: DemonstrationSet, **kwargs) -> float:
     model.policy.mlp_extractor.policy_net.load_state_dict(network.policy_net.state_dict())
     model.policy.action_net.load_state_dict(network.action_net.state_dict())
     return loss
+
+
+def _encoded_move(action) -> np.ndarray:
+    if action is None:
+        return np.zeros(2, dtype=np.float32)
+    return np.array([action.direction[0], action.direction[1]], dtype=np.float32)
+
+
+def collect_role_play_demonstrations(
+    scenario: Scenario | None = None,
+    learner_id: str = "wr1",
+    episodes: int = 200,
+    seed_start: int = 0,
+    opponents: Mapping[str, object] | None = None,
+    goal_line: float = 100.0,
+) -> DemonstrationSet:
+    """Run the rule receiver and record ``(28-observation, 2-action)`` pairs."""
+    chosen = scenario if scenario is not None else get_scenario("stage_b")
+    env = RolePlayEnv(chosen, learner_id=learner_id, opponents=opponents, goal_line=goal_line)
+    observations: list[np.ndarray] = []
+    actions: list[np.ndarray] = []
+    for episode in range(episodes):
+        env.reset(seed=seed_start + episode)
+        terminated = truncated = False
+        while not (terminated or truncated):
+            agent = env.rule_agent(learner_id)
+            action = agent.decide(env.play.state)
+            observations.append(env.observation())
+            actions.append(_encoded_move(action))
+            _, _, terminated, truncated, _ = env.step(actions[-1])
+    env.close()
+    return DemonstrationSet(
+        observations=np.stack(observations).astype(np.float32),
+        actions=np.stack(actions).astype(np.float32),
+    )
+
+
+def collect_role_drive_demonstrations(
+    scenario: Scenario | None = None,
+    learner_id: str = "cb1",
+    episodes: int = 200,
+    seed_start: int = 0,
+    opponents: Mapping[str, object] | None = None,
+    drive_config: DriveConfig | None = None,
+) -> DemonstrationSet:
+    """Run the rule defender and record ``(24-observation, 2-action)`` pairs."""
+    chosen = scenario if scenario is not None else get_scenario("stage_b")
+    env = RoleDriveEnv(
+        chosen,
+        learner_id=learner_id,
+        opponents=opponents,
+        drive_config=drive_config,
+    )
+    observations: list[np.ndarray] = []
+    actions: list[np.ndarray] = []
+    for episode in range(episodes):
+        env.reset(seed=seed_start + episode)
+        terminated = truncated = False
+        while not (terminated or truncated):
+            agent = env.rule_agent(learner_id)
+            action = agent.decide(env.play.state)
+            observations.append(env.observation())
+            actions.append(_encoded_move(action))
+            _, _, terminated, truncated, _ = env.step(actions[-1])
+    env.close()
+    return DemonstrationSet(
+        observations=np.stack(observations).astype(np.float32),
+        actions=np.stack(actions).astype(np.float32),
+    )
