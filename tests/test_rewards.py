@@ -4,8 +4,11 @@ from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.drive import PlayResult
 from qb_sim.training.rewards import (
     DriveRewardConfig,
+    ReceiverRewardConfig,
     RewardConfig,
+    defender_drive_reward,
     drive_result_reward,
+    receiver_result_reward,
     terminal_reward,
 )
 
@@ -115,3 +118,39 @@ def test_drive_reward_maps_a_coverage_sack_to_the_sack_coefficient() -> None:
     )
 
     assert drive_result_reward(result, DriveRewardConfig()) == pytest.approx(-1.0)
+
+
+def test_receiver_reward_pays_the_catch_bonus_only_when_catching() -> None:
+    config = ReceiverRewardConfig()
+
+    caught = receiver_result_reward(PlayOutcome.COMPLETED, 8.0, True, config)
+    not_caught = receiver_result_reward(PlayOutcome.COMPLETED, 8.0, False, config)
+
+    assert caught == pytest.approx(1.0 + 8.0 * 0.02 + 0.3)
+    assert not_caught == pytest.approx(1.0 + 8.0 * 0.02)
+
+
+def test_receiver_reward_keeps_terminal_penalties() -> None:
+    config = ReceiverRewardConfig()
+
+    assert receiver_result_reward(PlayOutcome.INTERCEPTION, 0.0, False, config) == pytest.approx(
+        -1.0
+    )
+
+
+def test_defender_reward_is_the_negated_drive_result_reward() -> None:
+    result = PlayResult(
+        outcome=PlayOutcome.COMPLETED,
+        spot=52.0,
+        yards=12.0,
+        first_down=True,
+        touchdown=False,
+        drive_over=False,
+        end_reason=None,
+        points=0.0,
+        throw_distance=12.0,
+    )
+
+    assert defender_drive_reward(result, DriveRewardConfig()) == pytest.approx(
+        -(1.0 + 12.0 * 0.02 + 0.3)
+    )

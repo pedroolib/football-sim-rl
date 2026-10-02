@@ -58,3 +58,29 @@ def drive_result_reward(result: PlayResult, config: DriveRewardConfig) -> float:
     if result.end_reason == "turnover_on_downs":
         reward += config.turnover_on_downs
     return float(reward)
+
+
+@dataclass(frozen=True, slots=True)
+class ReceiverRewardConfig:
+    """Offense terminal reward plus a bonus when the learner catches."""
+
+    play: RewardConfig = field(default_factory=RewardConfig)
+    catch_bonus: float = 0.3
+
+
+def receiver_result_reward(
+    outcome: PlayOutcome,
+    yards: float,
+    caught: bool,
+    config: ReceiverRewardConfig,
+) -> float:
+    """Reward for one finished play from the receiver's perspective."""
+    reward = terminal_reward(outcome, yards, config.play)
+    if caught:
+        reward += config.catch_bonus
+    return float(reward)
+
+
+def defender_drive_reward(result: PlayResult, config: DriveRewardConfig) -> float:
+    """Zero-sum defender reward for one finished drive play."""
+    return -drive_result_reward(result, config)
