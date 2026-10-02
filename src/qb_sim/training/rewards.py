@@ -1,8 +1,9 @@
 """Configurable reward function for the quarterback environment."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from qb_sim.engine.entities import PlayOutcome
+from qb_sim.rules.drive import PlayResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,3 +37,24 @@ def terminal_reward(outcome: PlayOutcome, yards: float, config: RewardConfig) ->
     if outcome is PlayOutcome.SACK:
         return config.sack
     return 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class DriveRewardConfig:
+    """Per-play drive reward with first-down and turnover terms."""
+
+    play: RewardConfig = field(default_factory=RewardConfig)
+    first_down: float = 0.3
+    turnover_on_downs: float = -0.5
+
+
+def drive_result_reward(result: PlayResult, config: DriveRewardConfig) -> float:
+    """Return the reward for one finished drive play."""
+    reward = terminal_reward(result.outcome, result.yards, config.play)
+    if result.first_down:
+        reward += config.first_down
+    if result.touchdown:
+        reward += result.points
+    if result.end_reason == "turnover_on_downs":
+        reward += config.turnover_on_downs
+    return float(reward)
