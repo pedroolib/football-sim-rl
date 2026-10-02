@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from qb_sim.entities import BallState, BallStatus
-from qb_sim.geometry import FieldBounds, Vector2, segment_circle_contact_fraction, vec2
+from qb_sim.engine.entities import BallState, BallStatus
+from qb_sim.engine.geometry import FieldBounds, Vector2, segment_circle_contact_fraction, vec2
 
 
 def move_toward(position: Vector2, target: Vector2, max_distance: float) -> Vector2:

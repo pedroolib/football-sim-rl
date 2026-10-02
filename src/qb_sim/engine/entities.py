@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from qb_sim.geometry import Vector2
+from qb_sim.engine.geometry import Vector2
 
 
 class BallStatus(Enum):
@@ -11,6 +11,7 @@ class BallStatus(Enum):
 
     HELD = "held"
     IN_FLIGHT = "in_flight"
+    CARRIED = "carried"
     DEAD = "dead"
 
 
@@ -25,12 +26,21 @@ class PlayOutcome(Enum):
     TIME_LIMIT = "time_limit"
 
 
+class Role(Enum):
+    """The football role a player state belongs to."""
+
+    QUARTERBACK = "quarterback"
+    RECEIVER = "receiver"
+    DEFENDER = "defender"
+
+
 @dataclass(slots=True)
 class PlayerState:
     """A player's current position and velocity in yards and yards per second."""
 
     position: Vector2
     velocity: Vector2
+    role: Role | None = None
 
 
 @dataclass(slots=True)
@@ -53,3 +63,4 @@ class PlayState:
     ball: BallState
     elapsed_seconds: float = 0.0
     outcome: PlayOutcome = PlayOutcome.IN_PROGRESS
+    carrier: Role | None = None

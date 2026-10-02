@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from qb_sim.geometry import FieldBounds
+from qb_sim.engine.geometry import FieldBounds
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,8 +17,10 @@ class SimulationConfig:
     defender_start: tuple[float, float] = (18.0, 43.0)
     receiver_speed: float = 7.0
     defender_speed: float = 6.5
+    quarterback_speed: float = 6.5
     ball_speed: float = 25.0
     catch_radius: float = 1.0
+    tackle_radius: float = 1.0
     go_length_yards: float = 30.0
     slant_break_yards: float = 3.0
     slant_angle_degrees: float = 45.0
@@ -32,6 +34,7 @@ class SimulationConfig:
             "max_play_duration": self.max_play_duration,
             "receiver_speed": self.receiver_speed,
             "defender_speed": self.defender_speed,
+            "quarterback_speed": self.quarterback_speed,
             "ball_speed": self.ball_speed,
             "go_length_yards": self.go_length_yards,
             "slant_break_yards": self.slant_break_yards,
@@ -43,6 +46,8 @@ class SimulationConfig:
                 raise ValueError(f"{name} must be positive")
         if self.catch_radius < 0.0:
             raise ValueError("catch_radius must be non-negative")
+        if self.tackle_radius < 0.0:
+            raise ValueError("tackle_radius must be non-negative")
         if not 0.0 <= self.slant_angle_degrees <= 90.0:
             raise ValueError("slant_angle_degrees must be between 0 and 90")
         if not 0.0 <= self.post_angle_degrees <= 90.0:

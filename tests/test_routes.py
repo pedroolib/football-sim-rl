@@ -1,8 +1,8 @@
 import pytest
 
 from qb_sim.config import SimulationConfig
-from qb_sim.geometry import vec2
-from qb_sim.routes import RouteName, build_route
+from qb_sim.engine.geometry import vec2
+from qb_sim.rules.routes import RouteName, build_route
 
 
 def test_go_route_runs_downfield_without_lateral_break() -> None:

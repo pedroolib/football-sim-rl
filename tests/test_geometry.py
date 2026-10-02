@@ -1,6 +1,6 @@
 import pytest
 
-from qb_sim.geometry import FieldBounds, distance, segment_circle_contact_fraction, vec2
+from qb_sim.engine.geometry import FieldBounds, distance, segment_circle_contact_fraction, vec2
 
 
 def test_distance_uses_euclidean_coordinates() -> None:
@@ -47,6 +47,13 @@ def test_segment_circle_contact_is_zero_when_starting_inside() -> None:
     )
 
     assert fraction == 0.0
+
+
+def test_field_bounds_clamp_position_to_edges() -> None:
+    field = FieldBounds(length_yards=120.0, width_yards=53.3)
+
+    assert field.clamp(vec2(-5.0, 60.0)).tolist() == pytest.approx([0.0, 53.3])
+    assert field.clamp(vec2(200.0, -2.0)).tolist() == pytest.approx([120.0, 0.0])
 
 
 def test_field_bounds_include_edges_and_reject_points_outside() -> None:

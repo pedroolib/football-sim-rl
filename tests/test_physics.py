@@ -1,8 +1,8 @@
 import pytest
 
-from qb_sim.entities import BallState, BallStatus
-from qb_sim.geometry import FieldBounds, vec2
-from qb_sim.physics import (
+from qb_sim.engine.entities import BallState, BallStatus
+from qb_sim.engine.geometry import FieldBounds, vec2
+from qb_sim.engine.physics import (
     advance_ball,
     move_toward,
     moving_circle_contact_fraction,

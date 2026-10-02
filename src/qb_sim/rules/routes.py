@@ -7,7 +7,7 @@ from math import cos, radians, sin
 import numpy as np
 
 from qb_sim.config import SimulationConfig
-from qb_sim.geometry import FieldBounds, Vector2, vec2
+from qb_sim.engine.geometry import FieldBounds, Vector2, vec2
 
 
 class RouteName(StrEnum):

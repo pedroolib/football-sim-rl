@@ -1,0 +1,266 @@
+# QB Lab — Instrucciones para Agentes
+
+## 1. Visión del proyecto
+
+Construir un juego 2D de fútbol americano con estilo arcade, inspirado en la experiencia de juego de Retro Bowl, con una diferencia fundamental: **cada jugador del campo terminará controlado por un agente autónomo**, entrenado progresivamente con Reinforcement Learning (RL).
+
+El proyecto tiene dos objetivos complementarios:
+
+1. **Juego jugable por humanos:** desde etapas tempranas debe poder jugarse con controles intuitivos y una experiencia arcade.
+2. **Entorno de investigación RL / Multi-Agent RL (MARL):** el mismo motor debe permitir entrenar, evaluar, visualizar y comparar agentes individuales y equipos completos.
+
+La inspiración se limita a las mecánicas generales y al estilo de juego. Código, gráficos, nombres, interfaz y recursos deben ser **originales**; no copiar assets ni contenido propietario de Retro Bowl.
+
+El objetivo final no es un simulador donde solo el quarterback tenga IA, sino un juego donde jugadores ofensivos y defensivos tomen decisiones, se coordinen y aprendan. La implementación debe ser incremental: primero un prototipo sencillo, después equipos completos.
+
+## 2. Filosofía de desarrollo
+
+- Construir incrementalmente; nunca implementar el roadmap completo en un paso.
+- Priorizar un sistema pequeño, correcto, testeable y medible sobre uno grande e incompleto.
+- Mantener separados el motor de simulación, las reglas del juego, las políticas de los agentes, la interfaz y el entrenamiento.
+- El simulador debe funcionar sin interfaz gráfica (*headless*); el entrenamiento nunca depende de la UI.
+- El juego humano, los controladores basados en reglas y las políticas entrenadas deben usar el mismo motor y la misma interfaz de acciones.
+- Garantizar reproducibilidad: semillas, escenarios configurables y registro de acciones.
+- Usar dependencias mínimas; no agregar frameworks complejos antes de que un hito los necesite.
+- Usar observaciones locales o parciales cuando corresponda; un agente no debe ver información que un jugador real no tendría.
+- Diseñar recompensas que favorezcan el resultado colectivo sin impedir el análisis individual.
+- Explicar las decisiones técnicas importantes en lenguaje claro y accesible.
+- Comunicarse con el usuario en español; usar inglés para identificadores y terminología técnica estándar.
+- No hacer cambios arquitectónicos importantes en silencio. Si un requisito es ambiguo, preguntar antes de implementar.
+- No ocultar pruebas fallidas ni debilitar aserciones para hacer pasar una build.
+
+## 3. Tecnología
+
+Base inicial; revisar y justificar cuando un hito lo requiera:
+
+- Python 3.11+ (el entorno actual usa 3.14; verificar compatibilidad de *wheels*).
+- NumPy para cálculo numérico.
+- Gymnasium para el entorno de un solo agente (M4).
+- PyTorch para redes neuronales.
+- Stable-Baselines3 para el primer baseline PPO (M5). No asumir que SB3 cubrirá MARL.
+- Pygame como dependencia **opcional** de visualización interactiva (M2). El proyecto debe instalarse, probarse y entrenar sin Pygame. Si no hay wheel para la versión de Python, usar `pygame-ce` (compatible a nivel de API).
+- PettingZoo u otra interfaz multiagente: **evaluar en M6**; no integrar antes.
+- pytest para pruebas y Ruff para formato y lint.
+
+Reglas:
+
+- La simulación no debe importar el framework de entrenamiento ni la UI.
+- No introducir Unity, visión por computadora, LLMs externos ni entrenamiento distribuido sin justificación explícita.
+- Antes de adoptar una herramienta de MARL, investigar y justificar la decisión con experimentos o referencias.
+
+## 4. Arquitectura por capas
+
+Dependencias permitidas: `engine` no depende de nadie; `rules` depende de `engine`; `agents` dependen de `engine` y `rules`; `ui` y `training` dependen de las capas anteriores, nunca al revés.
+
+### Motor (`engine`)
+
+- Campo y geometría 2D.
+- Estado de jugadores y balón; posiciones y velocidades.
+- Movimiento, colisiones, tiempo con paso fijo y azar con semilla.
+- No conoce reglas de puntuación, interfaz ni frameworks de RL.
+
+### Reglas (`rules`)
+
+- Inicio y finalización de jugada.
+- Pase, recepción, intercepción, tackle y salidas del campo.
+- Condiciones de anotación, downs y reloj cuando el hito lo requiera.
+- Usa el motor; no contiene física duplicada.
+
+### Agentes (`agents`)
+
+- Interfaz común por rol: `observe(state) -> Observation`, `act(observation) -> Action`.
+- Los controladores basados en reglas y las políticas entrenadas implementan la misma interfaz y son intercambiables.
+- Permite compartir pesos entre jugadores del mismo rol; no entrenar una red independiente por jugador.
+- Cada jugador del campo tiene una instancia de agente que decide según su rol y su observación.
+- Diseñar desde temprano para pasar de un agente a múltiples agentes sin reescribir el motor.
+
+### Interfaz (`ui`)
+
+- Pygame como capa de visualización interactiva.
+- Lee el estado y traduce entradas humanas a los **mismos tipos de acción** que usan los agentes.
+- Nunca contiene una implementación independiente de la lógica del juego.
+- Debe poder pausar, reiniciar y reproducir jugadas.
+
+### Entrenamiento (`training`)
+
+- Entornos Gymnasium (M4) y multiagente (M6).
+- Configuración, checkpoints, evaluación con semillas separadas, métricas y logging.
+- No contiene física ni reglas; solo consume el entorno.
+
+### Registro y reproducción
+
+- Registrar semilla, configuración, observaciones, acciones y resultado por jugada.
+- Una jugada registrada debe poder reproducirse de forma determinista.
+
+## 5. Jugabilidad humana
+
+El modo humano se desarrolla temprano (M2), no al final como tarea de visualización. La experiencia debe evolucionar hacia un juego arcade.
+
+Controles objetivo, implementados según las mecánicas existentes en cada etapa:
+
+- Movimiento y carrera del jugador controlado.
+- Apuntar y lanzar pases.
+- Seleccionar jugadas y objetivos.
+- Controlar o cambiar al jugador activo cuando las mecánicas lo requieran.
+- Pausar, reiniciar y reproducir jugadas.
+
+Reglas:
+
+- No implementar todos los controles en el primer prototipo.
+- Las entradas humanas se convierten a acciones válidas del motor.
+- A medida que existan agentes para otros roles, el modo humano debe poder usarlos como compañeros y oponentes.
+
+## 6. Agentes por posición
+
+Introducir roles gradualmente. Para cada rol nuevo definir: observación, espacio de acciones, política inicial basada en reglas, recompensas y métricas relevantes, y pruebas de comportamiento.
+
+Objetivos futuros (no requisitos del primer prototipo):
+
+- **Quarterback:** moverse, decidir cuándo lanzar, elegir receptor y objetivo, correr, entregar el balón.
+- **Receptores:** ejecutar rutas, ajustar movimiento, buscar espacios, atrapar pases, bloquear.
+- **Running backs:** correr con el balón, elegir rutas, esquivar defensivos, bloquear.
+- **Defensivos:** cubrir receptores, perseguir al portador, interceptar, presionar al quarterback, tacklear.
+- **Línea:** bloquear, proteger espacios y ejecutar acciones de su posición.
+
+No implementar todas las posiciones a la vez.
+
+## 7. Roadmap
+
+Cada hito debe ser verificable y dejar el sistema funcionando. No avanzar sin cumplir los criterios de aceptación del hito actual.
+
+### M0 — Inspección y diseño (en curso)
+
+- Inspeccionar el repositorio y el código existente.
+- Identificar qué partes del plan original siguen siendo útiles.
+- Definir la arquitectura que soporte juego humano y entrenamiento multiagente.
+- Definir las mecánicas mínimas del primer prototipo.
+- No implementar código todavía.
+
+### M1 — Motor de simulación
+
+- Campo 2D y modelo básico de jugadores y balón.
+- Movimiento, colisiones y avance del tiempo con paso fijo.
+- Reglas fundamentales de una jugada: inicio, pase, recepción, intercepción, tackle y finalización.
+- Estados y acciones independientes de la interfaz.
+- Pruebas de determinismo y de reglas básicas.
+
+### M2 — Primer prototipo jugable por un humano
+
+- Visualizador interactivo con gráficos simples.
+- Control del quarterback con teclado y mouse según las mecánicas existentes.
+- Receptores y defensivos con comportamientos básicos basados en reglas.
+- Jugar, pausar, reiniciar y observar jugadas.
+- Validar que el juego se sienta razonable antes de entrenar políticas.
+- Mantener el modo headless funcional.
+
+### M3 — Controladores basados en reglas
+
+- Formalizar políticas simples para los roles existentes, con la interfaz común de agentes.
+- Permitir jugadas y partidos de prueba con equipos controlados por reglas.
+- Registrar acciones, observaciones y resultados.
+- Establecer escenarios reproducibles y métricas de referencia.
+
+### M4 — Entorno de entrenamiento de un solo agente
+
+- Entorno compatible con Gymnasium para entrenar inicialmente al quarterback.
+- Los demás jugadores usan políticas basadas en reglas.
+- Definir observaciones, acciones, recompensas y condiciones de terminación.
+- Entrenar y evaluar sin gráficos.
+- Elegir una primera tarea pequeña y medible, sin intentar resolver todo el fútbol americano.
+
+### M5 — Entrenamiento y evaluación del quarterback
+
+- Implementar PPO u otro algoritmo apropiado para el primer agente.
+- Comparar la política entrenada con los controladores por reglas y con el desempeño humano.
+- Mostrar visualmente las jugadas del agente.
+- Medir con métricas objetivas y escenarios repetibles.
+- Evitar recompensas que produzcan comportamientos sin sentido dentro del juego.
+
+### M6 — Entorno multiagente
+
+- Interfaz multiagente para que varios jugadores decidan durante una misma jugada.
+- Evaluar PettingZoo u otra interfaz adecuada.
+- Observaciones y acciones específicas por rol.
+- Políticas compartidas entre jugadores del mismo rol cuando convenga.
+- Empezar con escenarios pequeños (1 contra 1 y grupos reducidos) antes de escalar.
+- Mantener compatibilidad con controladores por reglas y modo humano.
+
+### M7 — Aprendizaje y coordinación multiagente
+
+- Investigar e implementar un enfoque adecuado de MARL, como MAPPO, si la arquitectura lo justifica.
+- Explorar recompensas compartidas, recompensas por rol y entrenamiento centralizado con ejecución descentralizada.
+- Entrenar progresivamente receptores, corredores y defensivos.
+- Evaluar coordinación, cobertura, rutas, toma de decisiones y resultados colectivos.
+- Incorporar self-play cuando existan políticas suficientemente estables.
+- Comparar con las políticas basadas en reglas y versiones anteriores de los agentes.
+
+### M8 — Juego completo inspirado en Retro Bowl
+
+- Expandir el motor a partidos más completos, con equipos y posiciones adicionales.
+- Integrar reglas arcade consistentes: downs, yardas por avanzar, anotaciones, posesiones, reloj y selección de jugadas, según el alcance que se defina.
+- Permitir partidos entre equipos de agentes, equipos de reglas y modo humano.
+- Lograr que todos los jugadores activos sean controlados por agentes en el modo autónomo.
+- Interfaz más pulida, estadísticas y herramientas de reproducción.
+- Temporadas, plantillas y gestión de equipos son una extensión separada, no un requisito para validar el aprendizaje multiagente.
+
+## 8. Pruebas y criterios de aceptación
+
+Cada hito debe incluir criterios verificables y pruebas automatizadas cuando corresponda. Como mínimo:
+
+- El motor es determinista con la misma semilla y la misma secuencia de acciones.
+- La interfaz gráfica y el modo headless producen los mismos resultados para las mismas acciones.
+- Los controles humanos se traducen a acciones válidas del motor.
+- Los agentes solo ejecutan acciones disponibles para su rol.
+- El entorno maneja correctamente terminaciones, truncamientos y recompensas.
+- Es posible registrar y reproducir una jugada.
+- Las métricas permiten comparar políticas bajo escenarios equivalentes.
+- El proyecto no se considera terminado si solo el quarterback tiene una política entrenada y el resto del equipo sigue controlado por reglas.
+
+## 9. Git y gestión de experimentos
+
+- Usar Git con commits enfocados.
+- Mantener configuraciones y resultados reproducibles.
+- No commitear: entornos virtuales, datasets temporales grandes, checkpoints innecesarios ni cachés generadas.
+- Mantener un `.gitignore` y documentar cómo reproducir los experimentos importantes.
+- Usar nombres de experimento claros y conservar la configuración asociada a cada checkpoint.
+
+## 10. Comunicación y flujo de trabajo
+
+Al inicio de cada sesión de desarrollo:
+
+1. Leer este archivo.
+2. Inspeccionar el repositorio y el código relevante.
+3. Identificar el hito actual y el estado del proyecto.
+4. Resumir qué está implementado y qué falta.
+
+Antes de implementar un hito:
+
+1. Explicar el enfoque propuesto.
+2. Identificar archivos a crear o modificar.
+3. Mencionar decisiones técnicas importantes y sus compromisos.
+4. Pedir aprobación si implica una decisión arquitectónica significativa.
+
+Al completar un hito:
+
+1. Resumir la implementación.
+2. Listar archivos modificados.
+3. Reportar pruebas y resultados reales (sin afirmar verificaciones que no se ejecutaron).
+4. Explicar los conceptos de RL involucrados.
+5. Identificar la siguiente tarea lógica sin implementarla automáticamente.
+
+**Priorizar siempre un sistema pequeño, funcional y medible sobre una implementación grande sin terminar.**
+
+## 11. Estado del repositorio
+
+- M1 implementado: paquete en capas `src/qb_sim/engine` (geometría, entidades, acciones híbridas `Move`/`Throw`, física) y `src/qb_sim/rules` (`Play`, rutas `go`/`slant`/`post`). Jugada determinista de pase con recepción, fase de portador, tackle de toque, intercepción, fuera de límites y límite de tiempo; 47 pruebas con pytest. Sin Gymnasium ni renderizado.
+- Pendiente del roadmap: modo humano y visualizador (M2), controladores formales (M3), entorno Gymnasium (M4), entrenamiento (M5), multiagente (M6+). Aún no hay múltiples receptores ni defensivos autónomos más allá del perseguidor provisional.
+- `docs/superpowers/plans/2026-10-01-qb-simulation-core.md` es histórico; el plan vigente del hito es `docs/superpowers/plans/2026-10-01-m1-simulation-engine.md`.
+
+## 12. Decisiones abiertas (requieren aprobación antes de implementar)
+
+1. **Esquema unificado de acciones:** ¿continuo/híbrido (vector de movimiento, apuntado con mouse, potencia) o discreto (esperar + leads)? Afecta motor, UI y espacios de acción de RL. Recomendación: esquema híbrido en el motor, con subespacios por rol para RL.
+2. **Alcance del primer prototipo jugable (M2):** qué roles y cuántos jugadores por bando (p. ej., QB + 2 receptores + 1 RB y 2–3 defensivos) y si el QB puede correr. Determina el tamaño del motor y de las reglas.
+3. **Regla de tackle en V0.1:** contacto/toque que termina la jugada o derribo con animación/física. Recomendación: regla de toque.
+4. **Fidelidad del pase:** trayectoria 2D recta como el prototipo actual o altura/arco desde el principio. Recomendación: 2D en M1, revisar cuando M2 lo requiera.
+5. **Formato de registro/reproducción:** JSON/JSONL con semilla y configuración, u otro formato binario. Debe cubrir acciones humanas y de agentes por igual.
+6. **Interfaz multiagente:** PettingZoo frente a API propia o entornos vectorizados de Gymnasium. Se decide en M6; en M4 conviene un adaptador delgado para no cerrar la puerta.

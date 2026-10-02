@@ -5,18 +5,26 @@ from math import isfinite
 import numpy as np
 
 from qb_sim.config import SimulationConfig
-from qb_sim.entities import BallState, BallStatus, PlayerState, PlayOutcome, PlayState
-from qb_sim.geometry import Vector2, vec2
-from qb_sim.physics import (
+from qb_sim.engine.actions import Move, Throw
+from qb_sim.engine.entities import (
+    BallState,
+    BallStatus,
+    PlayerState,
+    PlayOutcome,
+    PlayState,
+    Role,
+)
+from qb_sim.engine.geometry import Vector2, distance, vec2
+from qb_sim.engine.physics import (
     advance_ball,
     move_toward,
     moving_circle_contact_fraction,
     segment_field_exit_fraction,
 )
-from qb_sim.routes import Route, RouteName, build_route
+from qb_sim.rules.routes import Route, RouteName, build_route
 
 
-class Simulation:
+class Play:
     """Advance a quarterback, receiver, defender, and football through one play."""
 
     def __init__(
@@ -36,9 +44,9 @@ class Simulation:
         receiver_position = vec2(*self.config.receiver_start)
         defender_position = vec2(*self.config.defender_start)
         self.state = PlayState(
-            quarterback=PlayerState(quarterback_position, vec2(0.0, 0.0)),
-            receiver=PlayerState(receiver_position, vec2(0.0, 0.0)),
-            defender=PlayerState(defender_position, vec2(0.0, 0.0)),
+            quarterback=PlayerState(quarterback_position, vec2(0.0, 0.0), Role.QUARTERBACK),
+            receiver=PlayerState(receiver_position, vec2(0.0, 0.0), Role.RECEIVER),
+            defender=PlayerState(defender_position, vec2(0.0, 0.0), Role.DEFENDER),
             ball=BallState(
                 position=quarterback_position.copy(),
                 velocity=vec2(0.0, 0.0),
@@ -52,16 +60,23 @@ class Simulation:
         )
         return self.state
 
-    def throw(self, lead_seconds: float) -> None:
-        """Launch the ball toward the receiver's lead position."""
+    def throw_to(self, target: Vector2) -> None:
+        """Launch the ball toward a target point in field coordinates."""
+        self._launch_throw(Throw(target=target).target)
+
+    def throw_with_lead(self, lead_seconds: float) -> None:
+        """Launch the ball toward the receiver's projected lead position."""
         if not isfinite(lead_seconds) or lead_seconds < 0.0:
             raise ValueError("lead_seconds must be finite and non-negative")
+        target = self.state.receiver.position + self.state.receiver.velocity * lead_seconds
+        self._launch_throw(target)
+
+    def _launch_throw(self, target: Vector2) -> None:
         if self.state.outcome is not PlayOutcome.IN_PROGRESS:
             raise ValueError("cannot throw after the play has ended")
         if self.state.ball.status is not BallStatus.HELD:
             raise ValueError("the ball has already been thrown")
 
-        target = self.state.receiver.position + self.state.receiver.velocity * lead_seconds
         offset = target - self.state.quarterback.position
         target_distance = float(np.linalg.norm(offset))
         if target_distance == 0.0:
@@ -74,37 +89,58 @@ class Simulation:
         self.state.ball.target = np.array(target, dtype=np.float64, copy=True)
         self.state.ball.status = BallStatus.IN_FLIGHT
 
-    def step(self) -> PlayState:
+    def step(self, qb_action: Move | Throw | None = None) -> PlayState:
         """Advance one fixed time step and resolve any terminal play event."""
         if self.state.outcome is not PlayOutcome.IN_PROGRESS:
             return self.state
 
         remaining_time = self.config.max_play_duration - self.state.elapsed_seconds
         if remaining_time <= 0.0:
-            self._finish(PlayOutcome.TIME_LIMIT)
+            self._finish_expired_play()
             return self.state
         dt = min(self.config.dt, remaining_time)
 
-        previous_receiver_position = self.state.receiver.position.copy()
-        previous_defender_position = self.state.defender.position.copy()
-        self._advance_receiver(dt)
-        self._advance_defender(dt)
+        if qb_action is not None:
+            self._apply_quarterback_action(qb_action, dt)
 
         tick_fraction = 1.0
-        if self.state.ball.status is BallStatus.IN_FLIGHT:
-            tick_fraction = self._advance_pass(
-                dt,
-                previous_receiver_position,
-                previous_defender_position,
-            )
+        if self.state.carrier is not None:
+            self._advance_carrier(dt)
+            self._advance_defender(dt)
+            self._resolve_carrier_events()
+        else:
+            previous_receiver_position = self.state.receiver.position.copy()
+            previous_defender_position = self.state.defender.position.copy()
+            self._advance_receiver(dt)
+            self._advance_defender(dt)
+            if self.state.ball.status is BallStatus.IN_FLIGHT:
+                tick_fraction = self._advance_pass(
+                    dt,
+                    previous_receiver_position,
+                    previous_defender_position,
+                )
 
         self.state.elapsed_seconds += dt * tick_fraction
         if (
             self.state.outcome is PlayOutcome.IN_PROGRESS
             and self.state.elapsed_seconds >= self.config.max_play_duration
         ):
-            self._finish(PlayOutcome.TIME_LIMIT)
+            self._finish_expired_play()
         return self.state
+
+    def _apply_quarterback_action(self, action: Move | Throw, dt: float) -> None:
+        if isinstance(action, Throw):
+            self._launch_throw(action.target)
+            return
+        if isinstance(action, Move):
+            previous = self.state.quarterback.position.copy()
+            new_position = self.config.field.clamp(
+                previous + action.direction * (self.config.quarterback_speed * dt)
+            )
+            self.state.quarterback.position = new_position
+            self.state.quarterback.velocity = (new_position - previous) / dt
+            return
+        raise TypeError(f"unsupported quarterback action: {type(action).__name__}")
 
     def _advance_receiver(self, dt: float) -> None:
         previous = self.state.receiver.position.copy()
@@ -114,6 +150,20 @@ class Simulation:
         )
         self.state.receiver.position = new_position
         self.state.receiver.velocity = (new_position - previous) / dt
+
+    def _advance_carrier(self, dt: float) -> None:
+        previous = self.state.receiver.position.copy()
+        new_position = previous + vec2(1.0, 0.0) * (self.config.receiver_speed * dt)
+        self.state.receiver.position = new_position
+        self.state.receiver.velocity = (new_position - previous) / dt
+        self.state.ball.position = new_position.copy()
+
+    def _resolve_carrier_events(self) -> None:
+        defender_distance = distance(self.state.defender.position, self.state.receiver.position)
+        if defender_distance <= self.config.tackle_radius:
+            self._finish(PlayOutcome.COMPLETED)
+        elif not self.config.field.contains(self.state.receiver.position):
+            self._finish(PlayOutcome.COMPLETED)
 
     def _advance_defender(self, dt: float) -> None:
         previous = self.state.defender.position.copy()
@@ -217,8 +267,24 @@ class Simulation:
             previous_defender_position
             + (self.state.defender.position - previous_defender_position) * tick_fraction
         )
-        self._finish(outcome)
+        if outcome is PlayOutcome.COMPLETED:
+            self._complete_catch()
+        else:
+            self._finish(outcome)
         return tick_fraction
+
+    def _complete_catch(self) -> None:
+        self.state.carrier = Role.RECEIVER
+        self.state.ball.status = BallStatus.CARRIED
+        self.state.ball.velocity = vec2(0.0, 0.0)
+        self.state.ball.target = None
+        self.state.ball.position = self.state.receiver.position.copy()
+
+    def _finish_expired_play(self) -> None:
+        if self.state.carrier is not None:
+            self._finish(PlayOutcome.COMPLETED)
+        else:
+            self._finish(PlayOutcome.TIME_LIMIT)
 
     def _finish(self, outcome: PlayOutcome) -> None:
         self.state.outcome = outcome

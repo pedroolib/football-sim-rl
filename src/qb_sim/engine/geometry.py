@@ -67,3 +67,10 @@ class FieldBounds:
         return bool(
             0.0 <= position[0] <= self.length_yards and 0.0 <= position[1] <= self.width_yards
         )
+
+    def clamp(self, position: Vector2) -> Vector2:
+        """Return an independent copy of ``position`` clamped to the field."""
+        return vec2(
+            float(np.clip(position[0], 0.0, self.length_yards)),
+            float(np.clip(position[1], 0.0, self.width_yards)),
+        )
