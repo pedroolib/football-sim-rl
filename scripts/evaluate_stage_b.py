@@ -28,10 +28,21 @@ from qb_sim.training.train import build_opponents
 
 LEARNERS = {"wr": "wr1", "cb": "cb1", "ru": "ru1"}
 ENV_KINDS = {"composition": "drive", "wr": "role_play", "cb": "role_drive", "ru": "role_drive"}
+ALLOWED_OPPONENTS = {
+    "composition": ("qb", "wr1", "wr2", "cb1", "cb2", "ru1"),
+    "wr": ("qb", "wr1", "wr2"),
+    "cb": ("qb", "wr1", "wr2", "cb1", "cb2", "ru1"),
+    "ru": ("qb", "wr1", "wr2", "cb1", "cb2", "ru1"),
+}
 
 
-def _pairs(entries: list[str]) -> tuple[tuple[str, str], ...]:
-    return tuple(entry.split("=", 1) for entry in entries)
+def _pairs(entries: list[str], parser: argparse.ArgumentParser) -> tuple[tuple[str, str], ...]:
+    pairs = []
+    for entry in entries:
+        if "=" not in entry:
+            parser.error(f"expected ID=PATH, got {entry!r}")
+        pairs.append(tuple(entry.split("=", 1)))
+    return tuple(pairs)
 
 
 def _rule_role_action(env, observation) -> np.ndarray:
@@ -57,14 +68,22 @@ def main() -> None:
     seeds = range(args.seed_start, args.seed_start + args.episodes)
     scenario = get_scenario(args.scenario)
     env_kind = ENV_KINDS[args.mode]
-    opponents = build_opponents(env_kind, args.scenario, _pairs(args.opponent))
+    opponent_pairs = _pairs(args.opponent, parser)
+    allowed = ALLOWED_OPPONENTS[args.mode]
+    for player_id, _ in opponent_pairs:
+        if player_id not in allowed:
+            parser.error(
+                f"{args.mode} mode cannot use opponent {player_id!r}; "
+                f"allowed ids: {', '.join(allowed)}"
+            )
+    opponents = build_opponents(env_kind, args.scenario, opponent_pairs)
     results: dict[str, dict] = {}
 
     if args.mode == "composition":
         results["rules"] = evaluate_composition(
             RuleQuarterbackPolicy(scenario.config), opponents, args.scenario, seeds
         )
-        for label, path in _pairs(args.ppo):
+        for label, path in _pairs(args.ppo, parser):
             results[label] = evaluate_composition(
                 PPOActionPolicy(path), opponents, args.scenario, seeds
             )
@@ -73,7 +92,7 @@ def main() -> None:
         env_kwargs = {"learner_id": learner, "opponents": opponents}
         evaluate = evaluate_role_play if args.mode == "wr" else evaluate_role_drive
         results["rules"] = evaluate(_rule_role_action, args.scenario, seeds, **env_kwargs)
-        for label, path in _pairs(args.ppo):
+        for label, path in _pairs(args.ppo, parser):
             results[label] = evaluate(PPOActionPolicy(path), args.scenario, seeds, **env_kwargs)
 
     for name, summary in results.items():

@@ -109,6 +109,7 @@ def summarize_role_drive(results: list[dict[str, Any]]) -> dict:
     return {
         "episodes": float(total),
         "touchdown_pct_allowed": _pct(touchdowns, total),
+        "touchdown_pct_allowed_ci": _ci(touchdowns, total),
         "sack_pct": _pct(sacks, len(plays)),
         "sack_ci": _ci(sacks, len(plays)),
         "mean_pressure_at_throw": _mean(pressures),
@@ -127,13 +128,13 @@ def run_composition_episode(env: QBDriveEnv, qb_policy: QBPolicy, seed: int) -> 
     pressure_throw: float | None = None
     arrival: float | None = None
     while not (terminated or truncated):
-        pre_state = env.play.state
+        pre_pressure = float(env.play.state.pressure)
         action = np.asarray(qb_policy(env, observation), dtype=np.float32)
         observation, _, terminated, truncated, _ = env.step(action)
         current = env.play.state
         if separation_throw is None and current.throw_time is not None:
             separation_throw = _target_separation(env)
-            pressure_throw = float(pre_state.pressure)
+            pressure_throw = pre_pressure
         if separation_catch is None and current.carrier_id is not None:
             separation_catch = _target_separation(env)
         if arrival is None and env.play.rusher_ids:
@@ -226,7 +227,9 @@ def summarize_composition(results: list[dict[str, Any]]) -> dict:
         "interception_pct": _pct(interceptions, total),
         "interception_ci": _ci(interceptions, total),
         "turnover_on_downs_pct": _pct(turnovers, total),
+        "turnover_on_downs_ci": _ci(turnovers, total),
         "sack_pct": _pct(sacks, len(plays)),
+        "sack_ci": _ci(sacks, len(plays)),
         "mean_separation_at_throw": _mean(separations),
         "mean_pressure_at_throw": _mean(pressures),
         "mean_arrival_time": _mean(arrivals),

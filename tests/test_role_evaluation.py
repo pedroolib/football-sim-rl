@@ -5,7 +5,9 @@ from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.evaluation import RuleQuarterbackPolicy
 from qb_sim.training.role_evaluation import (
     evaluate_composition,
+    run_composition_episode,
     summarize_composition,
+    summarize_role_drive,
 )
 
 
@@ -46,6 +48,54 @@ def test_summarize_composition_computes_team_metrics() -> None:
     assert summary["points_per_drive"] == pytest.approx(3.5)
     assert summary["third_down_conversion_pct"] == pytest.approx(50.0)
     assert summary["mean_separation_at_throw"] == pytest.approx(2.5)
+    assert len(summary["turnover_on_downs_ci"]) == 2
+    assert summary["turnover_on_downs_ci"][0] <= 50.0 <= summary["turnover_on_downs_ci"][1]
+    assert len(summary["sack_ci"]) == 2
+
+
+def test_summarize_role_drive_reports_touchdown_interval() -> None:
+    plays = [
+        {
+            "outcome": "sack",
+            "pressure_at_throw": None,
+            "arrival_time": 1.2,
+            "separation_allowed_throw": None,
+        },
+    ]
+    results = [{"outcome": "touchdown", "points": 7.0, "plays": plays}]
+
+    summary = summarize_role_drive(results)
+
+    assert summary["touchdown_pct_allowed"] == pytest.approx(100.0)
+    assert summary["touchdown_pct_allowed_ci"][0] <= 100.0
+    assert summary["touchdown_pct_allowed_ci"][1] == pytest.approx(100.0)
+
+
+def test_run_composition_episode_records_pre_step_pressure_at_throw() -> None:
+    from qb_sim.training.drive_env import QBDriveEnv
+
+    scenario = get_scenario("stage_b")
+    throw_action = np.zeros(6, dtype=np.float32)
+    throw_action[5] = 1.0
+    observed: dict[str, object] = {"throwing": False, "pressure": None}
+
+    def throwing_policy(env, observation) -> np.ndarray:
+        pressure = float(env.play.state.pressure)
+        if not observed["throwing"] and pressure > 0.0:
+            observed["pressure"] = pressure
+            observed["throwing"] = True
+        if observed["throwing"]:
+            return throw_action
+        move = np.zeros(6, dtype=np.float32)
+        move[0] = 1.0
+        return move
+
+    env = QBDriveEnv(scenario)
+    result = run_composition_episode(env, throwing_policy, 0)
+    env.close()
+
+    assert observed["pressure"] is not None
+    assert result["pressure_at_throw"] == pytest.approx(observed["pressure"])
 
 
 def test_evaluate_composition_with_the_rule_quarterback_is_reproducible() -> None:
