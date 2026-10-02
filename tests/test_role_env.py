@@ -8,7 +8,10 @@ from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.routes import RouteName
 from qb_sim.training.rewards import DefenderRewardConfig, defender_potential
-from qb_sim.training.role_context_observations import RECEIVER_CONTEXT_OBSERVATION_SIZE
+from qb_sim.training.role_context_observations import (
+    RECEIVER_CONTEXT_OBSERVATION_SIZE,
+    receiver_context_observation,
+)
 from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv, defender_target
 
 
@@ -33,10 +36,13 @@ def test_role_play_passes_the_gymnasium_checker() -> None:
 
 
 def test_role_play_reset_is_deterministic_for_a_seed() -> None:
-    first, _ = RolePlayEnv().reset(seed=7)
-    second, _ = RolePlayEnv().reset(seed=7)
+    first_env = RolePlayEnv()
+    second_env = RolePlayEnv()
+    first, _ = first_env.reset(seed=7)
+    second, _ = second_env.reset(seed=7)
 
     np.testing.assert_allclose(first, second)
+    assert first_env.play.line_of_scrimmage == pytest.approx(second_env.play.line_of_scrimmage)
 
 
 def test_role_play_reset_samples_the_los_inside_the_range() -> None:
@@ -49,15 +55,7 @@ def test_role_play_reset_samples_the_los_inside_the_range() -> None:
     assert 30.0 <= first <= 40.0
     assert 30.0 <= second <= 40.0
     assert first != second
-
-
-def test_role_play_los_is_deterministic_for_a_seed() -> None:
-    first = RolePlayEnv(los_range=(25.0, 50.0))
-    second = RolePlayEnv(los_range=(25.0, 50.0))
-    first.reset(seed=7)
-    second.reset(seed=7)
-
-    assert first.play.line_of_scrimmage == pytest.approx(second.play.line_of_scrimmage)
+    assert env.play.state.player("qb").position[0] == pytest.approx(second)
 
 
 def test_role_play_observation_uses_the_shifted_start() -> None:
@@ -71,6 +69,19 @@ def test_role_play_observation_uses_the_shifted_start() -> None:
     assert observation[28] == pytest.approx(30.0 / 120.0)
     assert observation[29] == pytest.approx(0.0)
     assert observation[30] == pytest.approx(1.0)
+
+
+def test_role_play_fixed_los_matches_the_unshifted_setup() -> None:
+    env = RolePlayEnv(los_range=(20.0, 20.0))
+    observation, _ = env.reset(seed=0)
+
+    assert env.play.line_of_scrimmage == pytest.approx(20.0)
+    assert env.play.state.player("qb").position[0] == pytest.approx(20.0)
+    assert env.play.state.player("wr1").position.tolist() == pytest.approx([20.0, 43.0])
+    expected = receiver_context_observation(
+        env.play.state, "wr1", env.scenario.config, env.routes[0]
+    )
+    np.testing.assert_allclose(observation, expected)
 
 
 def test_role_play_scores_the_catch_bonus_for_the_learner() -> None:
