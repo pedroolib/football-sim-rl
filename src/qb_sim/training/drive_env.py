@@ -24,6 +24,7 @@ from qb_sim.training.drive_observations import (
     drive_observation_from_state,
 )
 from qb_sim.training.rewards import DriveRewardConfig, drive_result_reward
+from qb_sim.training.role_env import decide_player_action
 
 
 class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -37,7 +38,7 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         drive_config: DriveConfig | None = None,
         reward_config: DriveRewardConfig | None = None,
         max_episode_steps: int = 2400,
-        opponents: Mapping[str, BaseAgent] | None = None,
+        opponents: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__()
         self.scenario = scenario if scenario is not None else RUSHED_SCENARIO
@@ -94,7 +95,16 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             raise RuntimeError("the drive episode is over; call reset()")
         engine_actions: dict[str, Move | Throw] = {}
         for player_id, agent in self._agents.items():
-            agent_action = agent.decide(self.play.state)
+            if player_id in self.opponents:
+                agent_action = decide_player_action(
+                    self.play,
+                    self.drive.routes,
+                    player_id,
+                    self.opponents[player_id],
+                    self.drive.state,
+                )
+            else:
+                agent_action = agent.decide(self.play.state)
             if agent_action is not None:
                 engine_actions[player_id] = agent_action
         decoded = decode_action(action, self.play.state.ball.status)
