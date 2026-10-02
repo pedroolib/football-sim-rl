@@ -14,10 +14,14 @@ import torch
 from torch import nn
 
 from qb_sim.agents.loop import build_rule_agents
+from qb_sim.agents.rule_controllers import HeuristicQuarterback
 from qb_sim.engine.entities import PlayOutcome
+from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import Scenario, get_scenario
 from qb_sim.training.actions import ACTION_SIZE, encode_engine_action
+from qb_sim.training.drive_env import QBDriveEnv
+from qb_sim.training.drive_observations import drive_observation_from_state
 from qb_sim.training.observations import observation_from_state
 
 _CLIP = 0.999
@@ -80,10 +84,55 @@ def concatenate_demonstrations(datasets: Sequence[DemonstrationSet]) -> Demonstr
     )
 
 
+def collect_drive_demonstrations(
+    scenario: Scenario | None = None,
+    episodes: int = 200,
+    seed_start: int = 0,
+    drive_config: DriveConfig | None = None,
+) -> DemonstrationSet:
+    """Run the rule QB inside a drive and record ``(observation, action)`` pairs."""
+    chosen = scenario if scenario is not None else get_scenario("rushed")
+    env = QBDriveEnv(chosen, drive_config=drive_config)
+    quarterback = HeuristicQuarterback("qb", chosen.config)
+    observations: list[np.ndarray] = []
+    actions: list[np.ndarray] = []
+    for episode in range(episodes):
+        _observation, _ = env.reset(seed=seed_start + episode)
+        terminated = truncated = False
+        while not (terminated or truncated):
+            engine_action = quarterback.decide(env.play.state)
+            action = (
+                encode_engine_action(engine_action)
+                if engine_action is not None
+                else _STAND_ACTION.copy()
+            )
+            observations.append(
+                drive_observation_from_state(
+                    state=env.play.state,
+                    routes=env.drive.routes,
+                    drive_state=env.drive.state,
+                    config=chosen.config,
+                    goal_line=env.drive_config.goal_line,
+                )
+            )
+            actions.append(action)
+            _observation, _, terminated, truncated, _ = env.step(action)
+    env.close()
+    return DemonstrationSet(
+        observations=np.stack(observations).astype(np.float32),
+        actions=np.stack(actions).astype(np.float32),
+    )
+
+
 class BehaviorCloningNetwork(nn.Module):
     """MLP matching the structure of Stable-Baselines3's policy network."""
 
-    def __init__(self, input_size: int, hidden: tuple[int, ...] = (64, 64)) -> None:
+    def __init__(
+        self,
+        input_size: int,
+        hidden: tuple[int, ...] = (64, 64),
+        action_size: int = ACTION_SIZE,
+    ) -> None:
         super().__init__()
         layers: list[nn.Module] = []
         size = input_size
@@ -91,7 +140,7 @@ class BehaviorCloningNetwork(nn.Module):
             layers.extend((nn.Linear(size, hidden_size), nn.Tanh()))
             size = hidden_size
         self.policy_net = nn.Sequential(*layers)
-        self.action_net = nn.Linear(size, ACTION_SIZE)
+        self.action_net = nn.Linear(size, action_size)
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         return self.action_net(self.policy_net(observations))
@@ -105,6 +154,7 @@ def train_behavior_cloning(
     learning_rate: float = 1e-3,
     seed: int = 0,
     throw_weight: float = 25.0,
+    action_size: int = ACTION_SIZE,
 ) -> tuple[BehaviorCloningNetwork, float]:
     """Train a network to imitate the demonstrations; return it and the loss.
 
@@ -112,7 +162,7 @@ def train_behavior_cloning(
     make the network accurate on the states that decide the pass.
     """
     torch.manual_seed(seed)
-    network = BehaviorCloningNetwork(dataset.observations.shape[1], hidden)
+    network = BehaviorCloningNetwork(dataset.observations.shape[1], hidden, action_size)
     optimizer = torch.optim.Adam(network.parameters(), lr=learning_rate)
     observations = torch.as_tensor(dataset.observations)
     targets = torch.as_tensor(np.arctanh(np.clip(dataset.actions, -_CLIP, _CLIP)))

@@ -83,3 +83,43 @@ def test_warm_start_imitates_the_rule_quarterback() -> None:
     assert mse < 0.05
     trigger_agreement = float(np.mean((predicted[:, 5] > 0.0) == (dataset.actions[:64, 5] > 0.0)))
     assert trigger_agreement > 0.9
+
+
+from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE  # noqa: E402
+from qb_sim.training.imitation import collect_drive_demonstrations  # noqa: E402
+
+
+def test_drive_demonstrations_have_expected_shapes() -> None:
+    dataset = collect_drive_demonstrations(get_scenario("rushed"), episodes=1, seed_start=0)
+
+    assert dataset.observations.shape[1] == DRIVE_OBSERVATION_SIZE
+    assert dataset.actions.shape[1] == ACTION_SIZE
+    assert len(dataset.observations) == len(dataset.actions)
+    assert len(dataset.observations) > 0
+
+
+def test_drive_warm_start_loads_the_behavior_cloning_weights() -> None:
+    pytest.importorskip("stable_baselines3")
+    from stable_baselines3 import PPO
+
+    from qb_sim.training.drive_env import QBDriveEnv
+
+    scenario = get_scenario("rushed")
+    dataset = collect_drive_demonstrations(scenario, episodes=1, seed_start=0)
+    network, _ = train_behavior_cloning(dataset, epochs=2, seed=0)
+    model = PPO(
+        "MlpPolicy",
+        QBDriveEnv(scenario),
+        n_steps=32,
+        batch_size=16,
+        seed=0,
+        device="cpu",
+    )
+
+    warm_start_policy(model, dataset, epochs=2, seed=0)
+
+    observations = torch.as_tensor(dataset.observations[:16])
+    with torch.no_grad():
+        expected = network(observations)
+        loaded = model.policy.action_net(model.policy.mlp_extractor.policy_net(observations))
+    assert torch.allclose(expected, loaded, atol=1e-6)
