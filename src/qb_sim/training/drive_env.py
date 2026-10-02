@@ -90,6 +90,8 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         action: np.ndarray,
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """Apply the QB action and advance the play, starting the next down if needed."""
+        if self.drive.state.terminated:
+            raise RuntimeError("the drive episode is over; call reset()")
         engine_actions: dict[str, Move | Throw] = {}
         for player_id, agent in self._agents.items():
             agent_action = agent.decide(self.play.state)

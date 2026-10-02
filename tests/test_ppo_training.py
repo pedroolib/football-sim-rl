@@ -191,10 +191,20 @@ def test_drive_training_smoke(tmp_path) -> None:
 
     _, final_path = train(config)
 
+    from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER
+
     metadata = json.loads((tmp_path / "drive-run" / "config.json").read_text())
     assert metadata["env_kind"] == "drive"
     assert metadata["observation_size"] == DRIVE_OBSERVATION_SIZE
+    assert metadata["route_pool"] == [route.value for route in ROUTE_OBSERVATION_ORDER]
     assert metadata["imitation_samples"] > 0
 
     loaded = PPO.load(final_path, device="cpu")
     assert loaded.observation_space.shape == (DRIVE_OBSERVATION_SIZE,)
+
+
+def test_build_env_rejects_unknown_env_kind() -> None:
+    from qb_sim.training.train import build_env
+
+    with pytest.raises(ValueError):
+        build_env(("rushed",), env_kind="driv")

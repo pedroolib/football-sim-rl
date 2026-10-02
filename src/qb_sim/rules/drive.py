@@ -119,6 +119,8 @@ class Drive:
 
     def advance(self, play: Play) -> PlayResult:
         """Apply a finished play to the drive state and return its result."""
+        if play.state.outcome is PlayOutcome.IN_PROGRESS:
+            raise ValueError("cannot advance a play that is still in progress")
         state = play.state
         old_los = self.state.los
         outcome = state.outcome

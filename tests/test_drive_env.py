@@ -121,6 +121,18 @@ def test_three_sacks_end_the_drive_on_downs() -> None:
     assert all(play["outcome"] == "sack" for play in info["plays"])
 
 
+def test_stepping_a_terminated_drive_is_rejected() -> None:
+    env = QBDriveEnv(_sack_scenario(), DriveConfig(los_range=(20.0, 20.0)))
+    env.reset(seed=0)
+
+    for _ in range(3):
+        _, _, terminated, _, _ = env.step(_noop())
+    assert terminated
+
+    with pytest.raises(RuntimeError):
+        env.step(_noop())
+
+
 def test_first_down_bonus_is_included_in_the_step_reward() -> None:
     env = QBDriveEnv(_open_scenario(), DriveConfig(los_range=(25.0, 25.0)))
     env.reset(seed=0)

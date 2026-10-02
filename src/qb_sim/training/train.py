@@ -21,6 +21,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from qb_sim.rules.drive import DriveConfig
+from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER
 from qb_sim.rules.scenarios import SCENARIOS, get_scenario
 from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
@@ -64,6 +65,8 @@ def effective_scenarios(config: PPOConfig) -> tuple[str, ...]:
 
 def build_env(scenario_names: tuple[str, ...], env_kind: str = "passing"):
     """Create a headless environment, cycling scenarios when there are several."""
+    if env_kind not in ("passing", "drive"):
+        raise ValueError(f"unknown env_kind: {env_kind!r}")
     if env_kind == "drive":
         if len(scenario_names) != 1:
             raise ValueError("drive training supports exactly one scenario")
@@ -189,6 +192,7 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     )
     if config.env_kind == "drive":
         metadata["drive"] = dataclasses.asdict(DriveConfig())
+        metadata["route_pool"] = [route.value for route in ROUTE_OBSERVATION_ORDER]
     (run_dir / "config.json").write_text(
         json.dumps(metadata, indent=2) + "\n",
         encoding="utf-8",

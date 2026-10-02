@@ -198,3 +198,11 @@ def test_start_play_after_termination_is_rejected() -> None:
 
     with pytest.raises(ValueError):
         drive.start_play()
+
+
+def test_advance_rejects_an_in_progress_play() -> None:
+    drive = _drive(los_range=(40.0, 40.0))
+    play = drive.start_play()
+
+    with pytest.raises(ValueError):
+        drive.advance(play)
