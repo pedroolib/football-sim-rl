@@ -6,6 +6,7 @@ from qb_sim.engine.actions import Throw
 from qb_sim.engine.entities import BallStatus
 from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveConfig
+from qb_sim.rules.routes import RouteName
 from qb_sim.training.rewards import DefenderRewardConfig, defender_potential
 from qb_sim.training.role_context_observations import RECEIVER_CONTEXT_OBSERVATION_SIZE
 from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv, defender_target
@@ -38,6 +39,40 @@ def test_role_play_reset_is_deterministic_for_a_seed() -> None:
     np.testing.assert_allclose(first, second)
 
 
+def test_role_play_reset_samples_the_los_inside_the_range() -> None:
+    env = RolePlayEnv(los_range=(30.0, 40.0))
+    env.reset(seed=0)
+    first = env.play.line_of_scrimmage
+    env.reset(seed=1)
+    second = env.play.line_of_scrimmage
+
+    assert 30.0 <= first <= 40.0
+    assert 30.0 <= second <= 40.0
+    assert first != second
+
+
+def test_role_play_los_is_deterministic_for_a_seed() -> None:
+    first = RolePlayEnv(los_range=(25.0, 50.0))
+    second = RolePlayEnv(los_range=(25.0, 50.0))
+    first.reset(seed=7)
+    second.reset(seed=7)
+
+    assert first.play.line_of_scrimmage == pytest.approx(second.play.line_of_scrimmage)
+
+
+def test_role_play_observation_uses_the_shifted_start() -> None:
+    env = RolePlayEnv(los_range=(45.0, 45.0))
+    env.reset(seed=0)
+    env.routes = (RouteName.GO, env.routes[1])
+
+    observation = env.observation()
+
+    # wr1 starts at (45,43); GO breaks at (75,43), so the delta is 30 yards.
+    assert observation[28] == pytest.approx(30.0 / 120.0)
+    assert observation[29] == pytest.approx(0.0)
+    assert observation[30] == pytest.approx(1.0)
+
+
 def test_role_play_scores_the_catch_bonus_for_the_learner() -> None:
     env = RolePlayEnv(learner_id="wr1")
     env.reset(seed=0)
@@ -58,7 +93,7 @@ def test_role_play_reports_yards_after_catch() -> None:
     env = RolePlayEnv(learner_id="wr1")
     env.reset(seed=0)
     state = env.play.state
-    catch_x = 32.0
+    catch_x = env.play.line_of_scrimmage + 12.0
     state.player("wr1").position = vec2(catch_x, 43.0)
     state.carrier_id = "wr1"
     state.ball.status = BallStatus.CARRIED
@@ -66,7 +101,7 @@ def test_role_play_reports_yards_after_catch() -> None:
     _, _, terminated, truncated, info = env.step(_noop())
     assert not (terminated or truncated)
     assert info["yards_after_catch"] == pytest.approx(0.0)
-    expected_yards = catch_x - env.scenario.config.quarterback_start[0]
+    expected_yards = catch_x - env.play.line_of_scrimmage
 
     _, _, terminated, truncated, info = env.step(np.array([1.0, 0.0], dtype=np.float32))
 

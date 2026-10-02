@@ -99,6 +99,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         reward_config: ReceiverRewardConfig | None = None,
         goal_line: float = 100.0,
         max_steps: int = 240,
+        los_range: tuple[float, float] = (25.0, 50.0),
     ) -> None:
         super().__init__()
         self.scenario = scenario if scenario is not None else STAGE_B_SCENARIO
@@ -108,6 +109,10 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
             self.opponents["qb"] = HeuristicQuarterback("qb", self.scenario.config)
         self.reward_config = reward_config if reward_config is not None else ReceiverRewardConfig()
         self.goal_line = float(goal_line)
+        low, high = los_range
+        if not 0.0 <= low <= high < self.goal_line:
+            raise ValueError("los_range must be inside the field")
+        self.los_range = (float(low), float(high))
         self.max_steps = int(max_steps)
         self._drive_context = DriveState(
             los=float(self.scenario.config.quarterback_start[0]),
@@ -147,8 +152,16 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def _setup_episode(self) -> None:
         rng = np.random.default_rng(self._episode_seed)
+        low, high = self.los_range
+        los = float(rng.uniform(low, high))
         self.routes = sample_routes(rng, len(self.scenario.config.receiver_starts))
-        self.play = Play(self.scenario.config, seed=self._episode_seed, goal_line=self.goal_line)
+        self.play = Play(
+            self.scenario.config,
+            seed=self._episode_seed,
+            line_of_scrimmage=los,
+            goal_line=self.goal_line,
+        )
+        self._drive_context.los = los
         self._agents = build_rule_agents(
             self.play,
             self.routes,
@@ -166,13 +179,20 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def observation(self) -> np.ndarray:
         """Current learner observation."""
-        route = self.routes[self.play.receiver_ids.index(self.learner_id)]
+        index = self.play.receiver_ids.index(self.learner_id)
+        shift = self.play.line_of_scrimmage - self.play.config.quarterback_start[0]
+        start = vec2(
+            self.scenario.config.receiver_starts[index][0] + shift,
+            self.scenario.config.receiver_starts[index][1],
+        )
+        route = self.routes[index]
         return receiver_context_observation(
             self.play.state,
             self.learner_id,
             self.scenario.config,
             route,
             self.goal_line,
+            start=start,
         )
 
     def step(
@@ -220,8 +240,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         if state.carrier_id is None:
             return 0.0
         return float(
-            state.player(state.carrier_id).position[0]
-            - self.scenario.config.quarterback_start[0]
+            state.player(state.carrier_id).position[0] - self.play.line_of_scrimmage
         )
 
     def _track_diagnostics(self, state) -> None:
@@ -251,9 +270,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         yards = self._carrier_yards(state)
         yards_after_catch = 0.0
         if caught and self._catch_x is not None:
-            yards_after_catch = yards - (
-                self._catch_x - self.scenario.config.quarterback_start[0]
-            )
+            yards_after_catch = yards - (self._catch_x - self.play.line_of_scrimmage)
         return {
             "episode_seed": self._episode_seed,
             "outcome": state.outcome.value,
