@@ -71,6 +71,31 @@ def test_summarize_role_drive_reports_touchdown_interval() -> None:
     assert summary["touchdown_pct_allowed_ci"][1] == pytest.approx(100.0)
 
 
+def test_summarize_role_drive_reports_completion_and_interception_rates() -> None:
+    plays = [
+        {
+            "outcome": "completed",
+            "pressure_at_throw": 0.3,
+            "arrival_time": None,
+            "separation_allowed_throw": 1.5,
+        },
+        {
+            "outcome": "interception",
+            "pressure_at_throw": None,
+            "arrival_time": None,
+            "separation_allowed_throw": None,
+        },
+    ]
+    results = [{"outcome": "interception", "points": 0.0, "plays": plays}]
+
+    summary = summarize_role_drive(results)
+
+    assert summary["completion_allowed_pct"] == pytest.approx(50.0)
+    assert summary["completion_allowed_ci"][0] <= 50.0 <= summary["completion_allowed_ci"][1]
+    assert summary["interception_forced_pct"] == pytest.approx(50.0)
+    assert summary["interception_forced_ci"][0] <= 50.0 <= summary["interception_forced_ci"][1]
+
+
 def test_run_composition_episode_records_pre_step_pressure_at_throw() -> None:
     from qb_sim.training.drive_env import QBDriveEnv
 

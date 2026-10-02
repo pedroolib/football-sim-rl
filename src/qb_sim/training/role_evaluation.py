@@ -94,6 +94,8 @@ def summarize_role_drive(results: list[dict[str, Any]]) -> dict:
         raise ValueError("at least one drive is required")
     plays = [play for result in results for play in result["plays"]]
     sacks = sum(play["outcome"] == "sack" for play in plays)
+    completions = sum(play["outcome"] == "completed" for play in plays)
+    interceptions = sum(play["outcome"] == "interception" for play in plays)
     pressures = [
         float(play["pressure_at_throw"])
         for play in plays
@@ -112,6 +114,10 @@ def summarize_role_drive(results: list[dict[str, Any]]) -> dict:
         "touchdown_pct_allowed_ci": _ci(touchdowns, total),
         "sack_pct": _pct(sacks, len(plays)),
         "sack_ci": _ci(sacks, len(plays)),
+        "completion_allowed_pct": _pct(completions, len(plays)),
+        "completion_allowed_ci": _ci(completions, len(plays)),
+        "interception_forced_pct": _pct(interceptions, len(plays)),
+        "interception_forced_ci": _ci(interceptions, len(plays)),
         "mean_pressure_at_throw": _mean(pressures),
         "mean_arrival_time": _mean(arrivals),
         "mean_separation_allowed_throw": _mean(separations),
