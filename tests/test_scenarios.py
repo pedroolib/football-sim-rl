@@ -6,6 +6,7 @@ from qb_sim.rules.scenarios import (
     DEFAULT_SCENARIO,
     PRESSURED_SCENARIO,
     RUSHED_SCENARIO,
+    SCENARIOS,
     Scenario,
     get_scenario,
 )
@@ -44,3 +45,13 @@ def test_get_scenario_rejects_unknown_names() -> None:
 def test_scenario_rejects_route_count_mismatch() -> None:
     with pytest.raises(ValueError):
         Scenario("bad", SimulationConfig(), (RouteName.POST,))
+
+
+def test_stage_b_scenario_enables_carrier_fatigue() -> None:
+    from qb_sim.rules.scenarios import STAGE_B_SCENARIO
+
+    config = STAGE_B_SCENARIO.config
+    assert config.carrier_fatigue_per_second > 0.0
+    assert 0.0 < config.carrier_min_speed_factor < 1.0
+    assert STAGE_B_SCENARIO.name in SCENARIOS
+    assert STAGE_B_SCENARIO.config.rusher_starts == ((30.0, 29.0),)

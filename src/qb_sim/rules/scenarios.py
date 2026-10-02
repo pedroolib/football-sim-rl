@@ -80,6 +80,18 @@ MIXED_SCENARIO = Scenario(
     (RouteName.POST, RouteName.SLANT),
 )
 
+STAGE_B_CONFIG = replace(
+    SimulationConfig(),
+    rusher_starts=((30.0, 29.0),),
+    carrier_fatigue_per_second=0.12,
+    carrier_min_speed_factor=0.55,
+)
+STAGE_B_SCENARIO = Scenario(
+    "stage_b",
+    STAGE_B_CONFIG,
+    (RouteName.POST, RouteName.SLANT),
+)
+
 SCENARIOS: dict[str, Scenario] = {
     scenario.name: scenario
     for scenario in (
@@ -91,6 +103,7 @@ SCENARIOS: dict[str, Scenario] = {
         SLOW_RUSH_SCENARIO,
         FAST_RUSH_SCENARIO,
         MIXED_SCENARIO,
+        STAGE_B_SCENARIO,
     )
 }
 
