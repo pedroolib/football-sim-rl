@@ -608,3 +608,60 @@ def test_touchdown_has_priority_over_a_simultaneous_sack() -> None:
     state = play.step({"qb": Move(direction=vec2(1.0, 0.0))})
 
     assert state.outcome is PlayOutcome.TOUCHDOWN
+
+
+def test_catch_records_when_the_carry_started() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(20.0, 26.65),
+        receiver_starts=((30.0, 26.65), (119.0, 0.0)),
+        defender_starts=((0.0, 0.0), (0.0, 0.0)),
+    )
+    play = Play(config)
+    agents = _make_agents(play)
+    _step(play, agents)
+    play.throw_with_lead(0.4)
+
+    state = _run_until(play, agents, lambda current: current.ball.status is BallStatus.CARRIED)
+
+    assert state.carry_started_at == pytest.approx(state.elapsed_seconds)
+
+
+def test_carrier_fatigue_slows_the_ball_carrier_only() -> None:
+    config = replace(ZERO_DEVIATION, carrier_fatigue_per_second=0.2, carrier_min_speed_factor=0.5)
+    play = Play(config)
+    play.state.carrier_id = "wr1"
+    play.state.carry_started_at = 0.0
+    play.state.elapsed_seconds = 2.0
+
+    state = play.step({"wr1": Move(direction=vec2(1.0, 0.0))})
+
+    assert float(np.linalg.norm(state.player("wr1").velocity)) == pytest.approx(7.0 * 0.6)
+
+    play = Play(config)
+    state = play.step({"cb1": Move(direction=vec2(1.0, 0.0))})
+
+    assert float(np.linalg.norm(state.player("cb1").velocity)) == pytest.approx(6.5)
+
+
+def test_carrier_fatigue_respects_the_floor() -> None:
+    config = replace(ZERO_DEVIATION, carrier_fatigue_per_second=0.5, carrier_min_speed_factor=0.4)
+    play = Play(config)
+    play.state.carrier_id = "wr1"
+    play.state.carry_started_at = 0.0
+    play.state.elapsed_seconds = 5.0
+
+    state = play.step({"wr1": Move(direction=vec2(1.0, 0.0))})
+
+    assert float(np.linalg.norm(state.player("wr1").velocity)) == pytest.approx(7.0 * 0.4)
+
+
+def test_fatigue_is_disabled_by_default() -> None:
+    play = Play(ZERO_DEVIATION)
+    play.state.carrier_id = "wr1"
+    play.state.carry_started_at = 0.0
+    play.state.elapsed_seconds = 3.0
+
+    state = play.step({"wr1": Move(direction=vec2(1.0, 0.0))})
+
+    assert float(np.linalg.norm(state.player("wr1").velocity)) == pytest.approx(7.0)

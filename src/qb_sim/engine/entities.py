@@ -72,6 +72,7 @@ class PlayState:
     carrier_id: str | None = None
     pressure: float = 0.0
     throw_time: float | None = None
+    carry_started_at: float | None = None
 
     def player(self, player_id: str) -> PlayerState:
         """Return the player with ``player_id`` or raise ``KeyError``."""

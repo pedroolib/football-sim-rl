@@ -30,6 +30,7 @@ class ReceiverObservation:
     nearest_defender: PlayerView | None
     time_step: float
     elapsed_seconds: float
+    carrier_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

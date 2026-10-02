@@ -135,3 +135,27 @@ def test_heuristic_quarterback_scrambles_away_from_pressure() -> None:
 
     assert isinstance(action, Move)
     assert action.direction[0] < 0.0
+
+
+def test_receiver_carrier_runs_toward_the_end_zone_after_the_route_ends() -> None:
+    play = Play()
+    play.state.carrier_id = "wr1"
+    controller = _route_controller(play)
+    controller.route.advance(play.state.player("wr1").position, max_distance=1000.0)
+
+    action = controller.decide(play.state)
+
+    assert isinstance(action, Move)
+    assert action.direction[0] > 0.5
+
+
+def test_receiver_carrier_steers_away_from_the_sideline() -> None:
+    play = Play()
+    play.state.carrier_id = "wr1"
+    play.state.player("wr1").position = vec2(40.0, 1.0)
+    controller = _route_controller(play)
+
+    action = controller.decide(play.state)
+
+    assert isinstance(action, Move)
+    assert action.direction[1] > 0.0

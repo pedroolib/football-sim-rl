@@ -14,20 +14,28 @@ from qb_sim.agents.observations import (
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import BallStatus, PlayState, Role
-from qb_sim.engine.geometry import distance, vec2
+from qb_sim.engine.geometry import FieldBounds, distance, vec2
 from qb_sim.rules.routes import Route
 
 
 class ReceiverRouteController(BaseAgent):
-    """Follow a scripted route using the receiver's movement action."""
+    """Follow a scripted route, or run to the end zone while carrying."""
 
     role = Role.RECEIVER
 
-    def __init__(self, player_id: str, route: Route, speed: float, time_step: float) -> None:
+    def __init__(
+        self,
+        player_id: str,
+        route: Route,
+        speed: float,
+        time_step: float,
+        field: FieldBounds | None = None,
+    ) -> None:
         super().__init__(player_id)
         self._route = route
         self._speed = speed
         self._time_step = time_step
+        self._field = field if field is not None else FieldBounds()
 
     @property
     def route(self) -> Route:
@@ -64,15 +72,35 @@ class ReceiverRouteController(BaseAgent):
             nearest_defender=nearest,
             time_step=self._time_step,
             elapsed_seconds=state.elapsed_seconds,
+            carrier_id=state.carrier_id,
         )
 
     def act(self, observation: ReceiverObservation) -> Move | None:
+        if observation.carrier_id == self.player_id:
+            return self._carry_action(observation)
         max_distance = self._speed * observation.time_step
         new_position, _ = self._route.advance(observation.position, max_distance)
         offset = new_position - observation.position
         if float(np.linalg.norm(offset)) == 0.0:
             return None
         return Move(direction=offset / max_distance)
+
+    def _carry_action(self, observation: ReceiverObservation) -> Move:
+        direction = vec2(1.0, 0.0)
+        if observation.nearest_defender is not None:
+            offset = observation.position - observation.nearest_defender.position
+            distance = float(np.linalg.norm(offset))
+            if 0.0 < distance < 3.0:
+                direction = direction + offset / distance * 0.75
+        margin = 3.0
+        if observation.position[1] < margin:
+            direction = direction + vec2(0.0, 0.5)
+        elif observation.position[1] > self._field.width_yards - margin:
+            direction = direction + vec2(0.0, -0.5)
+        length = float(np.linalg.norm(direction))
+        if length == 0.0:
+            return Move(direction=vec2(1.0, 0.0))
+        return Move(direction=direction / length)
 
 
 class ManCoverageController(BaseAgent):

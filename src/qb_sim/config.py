@@ -38,6 +38,8 @@ class SimulationConfig:
     catch_height: float = 3.0
     arc_ratio: float = 0.2
     max_arc_height: float = 6.0
+    carrier_fatigue_per_second: float = 0.0
+    carrier_min_speed_factor: float = 0.55
     tackle_radius: float = 1.0
     go_length_yards: float = 30.0
     slant_break_yards: float = 3.0
@@ -111,10 +113,13 @@ class SimulationConfig:
             "throw_pressure_penalty": self.throw_pressure_penalty,
             "throw_distance_penalty": self.throw_distance_penalty,
             "throw_power_sigma": self.throw_power_sigma,
+            "carrier_fatigue_per_second": self.carrier_fatigue_per_second,
         }
         for name, value in non_negative_spread.items():
             if value < 0.0:
                 raise ValueError(f"{name} must be non-negative")
+        if not 0.0 <= self.carrier_min_speed_factor <= 1.0:
+            raise ValueError("carrier_min_speed_factor must be between 0 and 1")
         if self.pressure_radius <= 0.0:
             raise ValueError("pressure_radius must be positive")
 

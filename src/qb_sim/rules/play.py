@@ -284,6 +284,8 @@ class Play:
             tick_fraction = self._advance_pass(dt, previous_positions)
 
         self.state.elapsed_seconds += dt * tick_fraction
+        if self.state.carrier_id is not None and self.state.carry_started_at is None:
+            self.state.carry_started_at = self.state.elapsed_seconds
         self.state.pressure = self.pressure_on_quarterback()
         if (
             self.state.outcome is PlayOutcome.IN_PROGRESS
@@ -309,6 +311,8 @@ class Play:
             self._launch_throw(action.direction, action.power)
             return
         speed = player.max_speed if player.max_speed > 0.0 else self._speed_for(player.role)
+        if player.player_id == self.state.carrier_id:
+            speed *= self._fatigue_factor()
         previous = player.position.copy()
         new_position = previous + action.direction * (speed * dt)
         if player.role is Role.QUARTERBACK:
@@ -324,6 +328,15 @@ class Play:
         if role is Role.DEFENDER:
             return self.config.defender_speed
         raise ValueError(f"unsupported role: {role!r}")
+
+    def _fatigue_factor(self) -> float:
+        if self.state.carry_started_at is None or self.config.carrier_fatigue_per_second <= 0.0:
+            return 1.0
+        carried = self.state.elapsed_seconds - self.state.carry_started_at
+        return max(
+            self.config.carrier_min_speed_factor,
+            1.0 - self.config.carrier_fatigue_per_second * carried,
+        )
 
     def _quarterback_sacked(self) -> bool:
         quarterback = self.state.player(_QB_ID)

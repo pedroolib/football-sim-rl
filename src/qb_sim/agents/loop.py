@@ -40,6 +40,7 @@ def build_rule_agents(
             route,
             settings.receiver_speed,
             settings.dt,
+            settings.field,
         )
     rusher_ids = set(play.rusher_ids)
     coverage_index = 0
