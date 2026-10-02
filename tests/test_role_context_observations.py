@@ -60,6 +60,19 @@ def test_receiver_context_encodes_route_progress() -> None:
     assert observation[30] == pytest.approx(1.0)
 
 
+def test_receiver_context_zeroes_route_progress_while_carrying() -> None:
+    play = Play()
+    play.state.player("wr1").position = vec2(45.0, 43.0)
+    play.state.carrier_id = "wr1"
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.GO
+    )
+
+    assert observation[28:31].tolist() == [0.0, 0.0, 0.0]
+    assert observation[19:27].sum() == pytest.approx(1.0)
+
+
 def test_receiver_context_uses_the_provided_start() -> None:
     play = Play()
     play.state.player("wr1").position = vec2(45.0, 43.0)

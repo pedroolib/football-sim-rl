@@ -59,7 +59,10 @@ def receiver_context_observation(
 
     ``start`` overrides the unshifted formation start so callers playing a
     shifted line of scrimmage build route-progress features from the actual
-    spot; ``None`` keeps the default formation derivation.
+    spot; ``None`` keeps the default formation derivation. While this player
+    carries the ball the three route-progress features are zeroed: the old
+    route waypoint is no longer a useful target and would steer the carrier
+    back toward it instead of the end zone.
     """
     values = [float(value) for value in receiver_observation(state, player_id, config)]
     values.extend(1.0 if route is route_name else 0.0 for route_name in ROUTE_OBSERVATION_ORDER)
@@ -68,19 +71,22 @@ def receiver_context_observation(
     index = int(player_id.removeprefix("wr")) - 1
     if start is None:
         start = vec2(*config.receiver_starts[index])
-    waypoint = _next_route_waypoint(route, start, state.player(player_id).position, config)
-    if waypoint is None:
+    if state.carrier_id == player_id:
         values.extend((0.0, 0.0, 0.0))
     else:
-        delta = waypoint - state.player(player_id).position
-        values.extend(
-            (
-                float(delta[0]) / config.field.length_yards,
-                float(delta[1]) / config.field.width_yards,
-                min(float(np.linalg.norm(delta)), WAYPOINT_DISTANCE_SCALE)
-                / WAYPOINT_DISTANCE_SCALE,
+        waypoint = _next_route_waypoint(route, start, state.player(player_id).position, config)
+        if waypoint is None:
+            values.extend((0.0, 0.0, 0.0))
+        else:
+            delta = waypoint - state.player(player_id).position
+            values.extend(
+                (
+                    float(delta[0]) / config.field.length_yards,
+                    float(delta[1]) / config.field.width_yards,
+                    min(float(np.linalg.norm(delta)), WAYPOINT_DISTANCE_SCALE)
+                    / WAYPOINT_DISTANCE_SCALE,
+                )
             )
-        )
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
 
 
