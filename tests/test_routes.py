@@ -166,3 +166,10 @@ def test_sample_routes_validates_its_arguments() -> None:
 def test_route_observation_order_matches_the_default_pool() -> None:
     assert ROUTE_OBSERVATION_ORDER == DEFAULT_ROUTE_POOL
     assert len(ROUTE_OBSERVATION_ORDER) == 8
+
+
+def test_go_route_is_capped_by_max_depth() -> None:
+    config = SimulationConfig()
+    route = build_route(RouteName.GO, vec2(20.0, 43.0), config.field, config, max_depth_yards=10.0)
+
+    assert route.waypoints[0][0] == pytest.approx(30.0)

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from qb_sim.agents.rule_controllers import (
@@ -6,6 +8,7 @@ from qb_sim.agents.rule_controllers import (
     PassRushController,
     ReceiverRouteController,
 )
+from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.geometry import vec2
 from qb_sim.rules.play import Play
@@ -159,3 +162,18 @@ def test_receiver_carrier_steers_away_from_the_sideline() -> None:
 
     assert isinstance(action, Move)
     assert action.direction[1] > 0.0
+
+
+def test_heuristic_quarterback_ignores_receivers_beyond_range() -> None:
+    config = replace(SimulationConfig(), throw_max_range=30.0)
+    play = Play(config)
+    for defender_id in ("cb1", "cb2"):
+        play.state.player(defender_id).position = vec2(119.0, 0.0)
+    play.state.player("wr1").position = vec2(60.0, 43.0)
+    play.state.player("wr2").position = vec2(60.0, 10.0)
+    play.state.elapsed_seconds = 1.0
+    controller = HeuristicQuarterback("qb", config)
+
+    action = controller.decide(play.state)
+
+    assert not isinstance(action, Throw)

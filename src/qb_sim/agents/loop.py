@@ -32,9 +32,16 @@ def build_rule_agents(
     agents: dict[str, BaseAgent] = {}
     if include_quarterback:
         agents["qb"] = HeuristicQuarterback("qb", settings)
+    max_depth_yards = max(5.0, 0.85 * settings.throw_max_range)
     for index, player_id in enumerate(play.receiver_ids):
         start = play.state.player(player_id).position
-        route = build_route(routes[index], start, settings.field, settings)
+        route = build_route(
+            routes[index],
+            start,
+            settings.field,
+            settings,
+            max_depth_yards=max_depth_yards,
+        )
         agents[player_id] = ReceiverRouteController(
             player_id,
             route,

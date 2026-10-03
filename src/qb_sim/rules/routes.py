@@ -101,8 +101,13 @@ def build_route(
     start: Vector2,
     field: FieldBounds,
     config: SimulationConfig,
+    max_depth_yards: float | None = None,
 ) -> Route:
-    """Build a route whose breaks point inward from the receiver's side."""
+    """Build a route whose breaks point inward from the receiver's side.
+
+    When ``max_depth_yards`` is given, every waypoint's x is capped at
+    ``start_x + max_depth_yards`` so receivers stay within the quarterback's arm.
+    """
     if not field.contains(start):
         raise ValueError("route start must be inside the field")
 
@@ -188,6 +193,13 @@ def build_route(
         )
     else:
         raise ValueError(f"unsupported route: {name!r}")
+
+    if max_depth_yards is not None:
+        depth_limit = float(start_point[0]) + max_depth_yards
+        waypoints = tuple(
+            np.array((min(float(point[0]), depth_limit), float(point[1])), dtype=np.float64)
+            for point in waypoints
+        )
 
     return Route(waypoints)
 

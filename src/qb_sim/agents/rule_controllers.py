@@ -14,7 +14,7 @@ from qb_sim.agents.observations import (
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import BallStatus, PlayState, Role
-from qb_sim.engine.geometry import FieldBounds, distance, vec2
+from qb_sim.engine.geometry import FieldBounds, Vector2, distance, vec2
 from qb_sim.rules.routes import Route
 
 
@@ -266,8 +266,12 @@ class HeuristicQuarterback(BaseAgent):
         self,
         observation: QuarterbackObservation,
     ) -> tuple[PlayerView, float] | None:
+        max_distance = 0.95 * self._config.throw_max_range
         best: tuple[PlayerView, float] | None = None
         for receiver in observation.receivers:
+            target = self._lead_target(observation, receiver)
+            if float(np.linalg.norm(target - observation.position)) > max_distance:
+                continue
             nearest = min(
                 (
                     distance(receiver.position, defender.position)
@@ -279,10 +283,13 @@ class HeuristicQuarterback(BaseAgent):
                 best = (receiver, nearest)
         return best
 
-    def _throw_to(self, observation: QuarterbackObservation, receiver: PlayerView) -> Throw | None:
+    def _lead_target(self, observation: QuarterbackObservation, receiver: PlayerView) -> Vector2:
         offset = receiver.position - observation.position
         flight = float(np.linalg.norm(offset)) / self._config.ball_speed
-        target = receiver.position + receiver.velocity * flight
+        return receiver.position + receiver.velocity * flight
+
+    def _throw_to(self, observation: QuarterbackObservation, receiver: PlayerView) -> Throw | None:
+        target = self._lead_target(observation, receiver)
         direction = target - observation.position
         if float(np.linalg.norm(direction)) == 0.0:
             return None
