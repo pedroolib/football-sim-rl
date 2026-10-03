@@ -294,8 +294,8 @@ In `src/qb_sim/rules/scenarios.py`:
 STAGE_B_CONFIG = replace(
     SimulationConfig(),
     rusher_starts=((30.0, 29.0),),
-    carrier_fatigue_per_second=0.12,
-    carrier_min_speed_factor=0.55,
+    carrier_fatigue_per_second=0.08,
+    carrier_min_speed_factor=0.65,
 )
 STAGE_B_SCENARIO = Scenario(
     "stage_b",
@@ -315,7 +315,7 @@ Create `scripts/carrier_feasibility.py`:
 
 Example:
 
-    python scripts/carrier_feasibility.py --fatigue 0.12 --drives 100
+    python scripts/carrier_feasibility.py --fatigue 0.08 --floor 0.65 --drives 100
 """
 
 import argparse
@@ -359,8 +359,8 @@ def run_drive(config, seed, drive_config):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Carrier fatigue feasibility")
-    parser.add_argument("--fatigue", type=float, default=0.12)
-    parser.add_argument("--floor", type=float, default=0.55)
+    parser.add_argument("--fatigue", type=float, default=0.08)
+    parser.add_argument("--floor", type=float, default=0.65)
     parser.add_argument("--drives", type=int, default=DEFAULT_SEEDS)
     parser.add_argument("--seed-start", type=int, default=10_000)
     args = parser.parse_args()
@@ -397,7 +397,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the script and lock the values**
 
-Run: `python scripts/carrier_feasibility.py --fatigue 0.12 --drives 100`
+Run: `python scripts/carrier_feasibility.py --fatigue 0.08 --floor 0.65 --drives 100`
 Expected: TD% well below 100% at small speed gaps and clearly higher at a 1.0-yard gap (the Retro Bowl behavior). If the separation is too weak or too strong, adjust `carrier_fatigue_per_second` in `STAGE_B_CONFIG` (try 0.08–0.2) and re-run until the gap curve is monotone and the 1.0-yard gap still scores often. Record the final table in the task report.
 
 - [ ] **Step 6: Run tests and full suite**

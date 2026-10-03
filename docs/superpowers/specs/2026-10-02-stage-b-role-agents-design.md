@@ -80,7 +80,7 @@ is the carrier, `Play._apply_action` multiplies its speed by
 `speed_factor = max(carrier_min_speed_factor, 1 - carrier_fatigue_per_second * (elapsed_seconds - carry_started_at))`.
 Fatigue does not apply during route running or to defenders. The default `0.0`
 keeps every existing M5/M7 trajectory unchanged; Stage B scenarios and
-environments enable it (initial calibration target: `0.12`/s, floor `0.55`,
+environments enable it (calibrated values: `0.08`/s, floor `0.65`,
 validated by the feasibility script before training).
 
 ### 3.3 Calibration script
@@ -126,7 +126,7 @@ New module `training/role_env.py` (registered as Gymnasium environments).
   (14% vs 22% catches at LOS 45).
 - Stage B defines the fatigue-enabled configuration explicitly in
   `rules/scenarios.py`:
-  `STAGE_B_CONFIG = replace(SimulationConfig(), carrier_fatigue_per_second=<calibrated>, carrier_min_speed_factor=0.55)`
+  `STAGE_B_CONFIG = replace(SimulationConfig(), carrier_fatigue_per_second=<calibrated>, carrier_min_speed_factor=0.65)`
   and a `STAGE_B_SCENARIO` (rushed roster) built from it. The fatigue values come
   from the §3.3 calibration report; `RolePlayEnv`, `RoleDriveEnv`, composition,
   and QB v12 all use `STAGE_B_CONFIG`.

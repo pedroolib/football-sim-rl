@@ -83,8 +83,8 @@ MIXED_SCENARIO = Scenario(
 STAGE_B_CONFIG = replace(
     SimulationConfig(),
     rusher_starts=((30.0, 29.0),),
-    carrier_fatigue_per_second=0.12,
-    carrier_min_speed_factor=0.55,
+    carrier_fatigue_per_second=0.08,
+    carrier_min_speed_factor=0.65,
 )
 STAGE_B_SCENARIO = Scenario(
     "stage_b",
