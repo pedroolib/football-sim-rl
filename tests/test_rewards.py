@@ -121,6 +121,10 @@ def test_drive_reward_maps_a_coverage_sack_to_the_sack_coefficient() -> None:
     assert drive_result_reward(result, DriveRewardConfig()) == pytest.approx(-1.0)
 
 
+def test_receiver_reward_config_defaults_to_dense_carry_progress() -> None:
+    assert ReceiverRewardConfig().carry_yard == pytest.approx(0.05)
+
+
 def test_receiver_reward_pays_the_catch_bonus_only_when_catching() -> None:
     config = ReceiverRewardConfig()
 

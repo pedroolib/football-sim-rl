@@ -105,6 +105,37 @@ def test_role_play_scores_the_catch_bonus_for_the_learner() -> None:
     assert total >= 1.2  # completion (+1.0) plus the +0.3 catch bonus
 
 
+def test_role_play_pays_dense_progress_while_carrying() -> None:
+    env = RolePlayEnv(learner_id="wr1")
+    env.reset(seed=0)
+    state = env.play.state
+    state.carrier_id = "wr1"
+    state.ball.status = BallStatus.CARRIED
+    state.carry_started_at = 0.0
+    x_before = float(state.player("wr1").position[0])
+
+    _, reward, terminated, truncated, _ = env.step(np.array([1.0, 0.0], dtype=np.float32))
+
+    assert not (terminated or truncated)
+    delta_x = float(state.player("wr1").position[0]) - x_before
+    assert delta_x > 0.0
+    assert reward == pytest.approx(delta_x * 0.05)
+
+
+def test_role_play_pays_no_progress_bonus_while_standing_still() -> None:
+    env = RolePlayEnv(learner_id="wr1")
+    env.reset(seed=0)
+    state = env.play.state
+    state.carrier_id = "wr1"
+    state.ball.status = BallStatus.CARRIED
+    state.carry_started_at = 0.0
+
+    _, reward, terminated, truncated, _ = env.step(_noop())
+
+    assert not (terminated or truncated)
+    assert reward == pytest.approx(0.0)
+
+
 def test_role_play_reports_yards_after_catch() -> None:
     env = RolePlayEnv(learner_id="wr1")
     env.reset(seed=0)

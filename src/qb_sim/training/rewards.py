@@ -67,6 +67,7 @@ class ReceiverRewardConfig:
     play: RewardConfig = field(default_factory=RewardConfig)
     catch_bonus: float = 0.3
     touchdown_bonus: float = 7.0
+    carry_yard: float = 0.05
 
 
 def receiver_result_reward(

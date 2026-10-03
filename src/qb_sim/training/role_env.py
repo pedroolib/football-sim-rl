@@ -232,15 +232,25 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         if learner_action is not None:
             engine_actions[self.learner_id] = learner_action
 
+        x_before = (
+            float(self.play.state.player(self.learner_id).position[0])
+            if self.play.state.carrier_id == self.learner_id
+            else None
+        )
         state = self.play.step(engine_actions)
         self._steps += 1
         self._track_diagnostics(state)
         terminated = state.outcome is not PlayOutcome.IN_PROGRESS
         truncated = not terminated and self._steps >= self.max_steps
         reward = 0.0
+        if x_before is not None and state.carrier_id == self.learner_id:
+            reward += (
+                max(0.0, float(state.player(self.learner_id).position[0]) - x_before)
+                * self.reward_config.carry_yard
+            )
         if terminated:
             caught = state.carrier_id == self.learner_id
-            reward = receiver_result_reward(
+            reward += receiver_result_reward(
                 state.outcome, self._carrier_yards(state), caught, self.reward_config
             )
         return self.observation(), float(reward), terminated, truncated, self._info()
