@@ -238,3 +238,40 @@ def test_advance_rejects_an_in_progress_play() -> None:
 
     with pytest.raises(ValueError):
         drive.advance(play)
+
+
+def test_drive_stores_the_last_throw_distance() -> None:
+    drive = _drive(los_range=(40.0, 40.0))
+    play = drive.start_play()
+    _finish_play(play, PlayOutcome.INCOMPLETE, throw_time=0.5)
+    play.state.ball.flight_distance = 22.5
+
+    drive.advance(play)
+
+    assert drive.state.last_throw_distance == pytest.approx(22.5)
+
+
+def test_last_throw_distance_persists_across_plays_without_a_throw() -> None:
+    drive = _drive(los_range=(40.0, 40.0))
+    play = drive.start_play()
+    _finish_play(play, PlayOutcome.INCOMPLETE, throw_time=0.5)
+    play.state.ball.flight_distance = 18.0
+    drive.advance(play)
+    play = drive.start_play()
+    _finish_play(play, PlayOutcome.SACK, qb_x=36.0)
+
+    drive.advance(play)
+
+    assert drive.state.last_throw_distance == pytest.approx(18.0)
+
+
+def test_last_throw_distance_resets_with_the_drive() -> None:
+    drive = _drive(los_range=(40.0, 40.0))
+    play = drive.start_play()
+    _finish_play(play, PlayOutcome.INCOMPLETE, throw_time=0.5)
+    play.state.ball.flight_distance = 18.0
+    drive.advance(play)
+
+    drive.reset(seed=7)
+
+    assert drive.state.last_throw_distance is None

@@ -47,6 +47,7 @@ class DriveState:
     points: float = 0.0
     terminated: bool = False
     end_reason: str | None = None
+    last_throw_distance: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +182,8 @@ class Drive:
         throw_distance = (
             float(state.ball.flight_distance) if state.throw_time is not None else None
         )
+        if throw_distance is not None:
+            self.state.last_throw_distance = throw_distance
         return PlayResult(
             outcome=outcome,
             spot=spot,
