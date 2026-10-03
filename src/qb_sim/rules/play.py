@@ -405,22 +405,6 @@ class Play:
                     )
                 )
 
-        for order, player_id in enumerate(self._rusher_ids):
-            contact = self._contact_fraction(
-                player_id, previous_positions, ball_start, ball_end, ball_travel_fraction
-            )
-            if contact is not None:
-                events.append(
-                    _PassEvent(
-                        contact * ball_travel_fraction,
-                        0,
-                        order,
-                        PlayOutcome.INCOMPLETE,
-                        contact,
-                        player_id,
-                    )
-                )
-
         field_exit = segment_field_exit_fraction(ball_start, ball_end, self.config.field)
         if field_exit is not None:
             events.append(

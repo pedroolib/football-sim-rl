@@ -441,7 +441,7 @@ def test_defender_intercepts_a_pass_crossing_its_path() -> None:
     assert state.outcome is PlayOutcome.INTERCEPTION
 
 
-def test_pass_rusher_bats_the_ball_down_instead_of_intercepting() -> None:
+def test_pass_rusher_cannot_intercept_a_pass_crossing_its_path() -> None:
     config = replace(
         ZERO_DEVIATION,
         quarterback_start=(20.0, 26.65),
@@ -456,7 +456,9 @@ def test_pass_rusher_bats_the_ball_down_instead_of_intercepting() -> None:
 
     state = _run_until_terminal(play, agents)
 
+    assert state.outcome is not PlayOutcome.INTERCEPTION
     assert state.outcome is PlayOutcome.INCOMPLETE
+    assert state.ball.position.tolist() == pytest.approx([30.0, 43.0])
 
 
 def test_ball_flying_above_a_defender_is_not_intercepted() -> None:
@@ -529,6 +531,16 @@ def test_pass_leaving_field_is_out_of_bounds() -> None:
 
 def test_defender_touching_the_quarterback_sacks_him() -> None:
     config = replace(ZERO_DEVIATION, defender_starts=((20.5, 26.65), (0.0, 0.0)))
+    play = Play(config)
+
+    state = play.step()
+
+    assert state.outcome is PlayOutcome.SACK
+    assert state.ball.status is BallStatus.DEAD
+
+
+def test_pass_rusher_can_still_sack_the_quarterback() -> None:
+    config = replace(ZERO_DEVIATION, rusher_starts=((20.5, 26.65),))
     play = Play(config)
 
     state = play.step()
