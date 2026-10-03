@@ -295,6 +295,27 @@ def test_dashboard_menu_repeats_while_the_key_is_held(dummy_video, tmp_path) -> 
         dashboard.close()
 
 
+def test_dashboard_camera_follows_the_ball(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(800, 450),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard.panels[0].play.state.ball.position[0] = 90.0
+        before = dashboard._cameras[0][0]
+
+        dashboard._update_cameras(1.0)
+
+        assert dashboard._cameras[0][0] > before
+    finally:
+        dashboard.close()
+
+
 def test_dashboard_role_play_mode_runs_plays(dummy_video, tmp_path) -> None:
     dashboard = TrainingDashboard(
         tmp_path,

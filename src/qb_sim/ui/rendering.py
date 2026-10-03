@@ -27,12 +27,79 @@ FOOTBALL_COLOR = (122, 62, 36)
 FOOTBALL_LACE_COLOR = (242, 242, 242)
 FOOTBALL_OUTLINE_COLOR = (58, 30, 16)
 SHADOW_COLOR = (22, 72, 40)
-SCRIMMAGE_COLOR = (255, 235, 120)
-FIRST_DOWN_COLOR = (90, 160, 255)
+SCRIMMAGE_COLOR = (70, 140, 255)
+FIRST_DOWN_COLOR = (255, 220, 90)
+YARD_NUMBER_COLOR = (222, 230, 214)
 PLAYER_RADIUS_YARDS = 0.5
 MIN_PLAYER_RADIUS = 3
 BALL_RADIUS = 4
 END_ZONE_YARDS = 10.0
+
+PIXEL_DIGITS: dict[str, tuple[str, ...]] = {
+    "0": ("111", "101", "101", "101", "111"),
+    "1": ("010", "110", "010", "010", "111"),
+    "2": ("111", "001", "111", "100", "111"),
+    "3": ("111", "001", "111", "001", "111"),
+    "4": ("101", "101", "111", "001", "001"),
+    "5": ("111", "100", "111", "001", "111"),
+    "6": ("111", "100", "111", "101", "111"),
+    "7": ("111", "001", "010", "010", "010"),
+    "8": ("111", "101", "111", "101", "111"),
+    "9": ("111", "101", "111", "001", "111"),
+}
+
+
+def yard_number_label(x: float, goal_line: float = 100.0) -> str:
+    """Yard-line number as the distance to the nearest goal line."""
+    distance = int(round(min(x, goal_line - x)))
+    return str(max(distance, 0))
+
+
+def _pixel_text(
+    surface: pygame.Surface,
+    text: str,
+    center: tuple[float, float],
+    pixel: int,
+    color: tuple[int, int, int],
+) -> None:
+    width = len(text) * 4 * pixel - pixel
+    height = 5 * pixel
+    start_x = int(round(center[0] - width / 2))
+    start_y = int(round(center[1] - height / 2))
+    for char_index, char in enumerate(text):
+        rows = PIXEL_DIGITS.get(char)
+        if rows is None:
+            continue
+        for row, line in enumerate(rows):
+            for col, cell in enumerate(line):
+                if cell == "1":
+                    surface.fill(
+                        color,
+                        pygame.Rect(
+                            start_x + (char_index * 4 + col) * pixel,
+                            start_y + row * pixel,
+                            pixel,
+                            pixel,
+                        ),
+                    )
+
+
+def draw_yard_numbers(
+    surface: pygame.Surface,
+    view: ViewTransform,
+    goal_line: float = 100.0,
+) -> None:
+    """Draw pixel-art yard numbers along the top and bottom of the field."""
+    pixel = max(2, int(round(view.scale * 0.45)))
+    top_y = view.to_screen(vec2(0.0, view.field.width_yards - 4.0))[1]
+    bottom_y = view.to_screen(vec2(0.0, 4.0))[1]
+    yard = 10.0
+    while yard <= goal_line - 10.0 + 1e-9:
+        label = yard_number_label(yard, goal_line)
+        center_x = view.to_screen(vec2(yard, 0.0))[0]
+        _pixel_text(surface, label, (center_x, top_y), pixel, YARD_NUMBER_COLOR)
+        _pixel_text(surface, label, (center_x, bottom_y), pixel, YARD_NUMBER_COLOR)
+        yard += 10.0
 
 
 def player_radius(view: ViewTransform) -> int:
@@ -66,23 +133,18 @@ def _field_rect(
     )
 
 
-def draw_field(surface: pygame.Surface, view: ViewTransform) -> None:
-    """Draw the field, end zones, boundary, and yard lines."""
+def draw_field(
+    surface: pygame.Surface,
+    view: ViewTransform,
+    goal_line: float = 100.0,
+) -> None:
+    """Draw the field, the opponent end zone, yard lines, and yard numbers."""
     surface.fill(FIELD_COLOR)
     field = view.field
     pygame.draw.rect(
-        surface, END_ZONE_COLOR, _field_rect(view, 0.0, 0.0, END_ZONE_YARDS, field.width_yards)
-    )
-    pygame.draw.rect(
         surface,
         END_ZONE_COLOR,
-        _field_rect(
-            view,
-            field.length_yards - END_ZONE_YARDS,
-            0.0,
-            field.length_yards,
-            field.width_yards,
-        ),
+        _field_rect(view, goal_line, 0.0, field.length_yards, field.width_yards),
     )
     pygame.draw.rect(
         surface,
@@ -90,12 +152,20 @@ def draw_field(surface: pygame.Surface, view: ViewTransform) -> None:
         _field_rect(view, 0.0, 0.0, field.length_yards, field.width_yards),
         width=2,
     )
-    yard = END_ZONE_YARDS
-    while yard <= field.length_yards - END_ZONE_YARDS:
+    yard = 10.0
+    while yard <= goal_line - 10.0 + 1e-9:
         start = _screen_int(view, vec2(yard, 0.0))
         end = _screen_int(view, vec2(yard, field.width_yards))
         pygame.draw.line(surface, LINE_COLOR, start, end, 1)
         yard += 10.0
+    pygame.draw.line(
+        surface,
+        LINE_COLOR,
+        _screen_int(view, vec2(goal_line, 0.0)),
+        _screen_int(view, vec2(goal_line, field.width_yards)),
+        2,
+    )
+    draw_yard_numbers(surface, view, goal_line)
 
 
 def draw_scrimmage(
@@ -105,7 +175,7 @@ def draw_scrimmage(
     first_down: float,
     goal_line: float = 100.0,
 ) -> None:
-    """Draw the line of scrimmage and the first-down marker."""
+    """Draw the line of scrimmage and a dashed first-down marker with a flag."""
     field = view.field
     pygame.draw.line(
         surface,
@@ -115,12 +185,25 @@ def draw_scrimmage(
         2,
     )
     if 0.0 <= first_down <= goal_line:
-        pygame.draw.line(
+        start = view.to_screen(vec2(first_down, 0.0))
+        end = view.to_screen(vec2(first_down, field.width_yards))
+        for segment_start, segment_end in dash_segments(start, end, dash=10.0, gap=7.0):
+            pygame.draw.line(
+                surface,
+                FIRST_DOWN_COLOR,
+                _pixel(segment_start),
+                _pixel(segment_end),
+                2,
+            )
+        flag_top = view.to_screen(vec2(first_down, field.width_yards))
+        pygame.draw.polygon(
             surface,
             FIRST_DOWN_COLOR,
-            _screen_int(view, vec2(first_down, 0.0)),
-            _screen_int(view, vec2(first_down, field.width_yards)),
-            2,
+            [
+                _pixel(flag_top),
+                _pixel(vec2(flag_top[0] + 12.0, flag_top[1] + 7.0)),
+                _pixel(vec2(flag_top[0], flag_top[1] + 14.0)),
+            ],
         )
 
 

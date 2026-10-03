@@ -26,6 +26,7 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = [".opencode"]
 
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "UP"]

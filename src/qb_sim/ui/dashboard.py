@@ -55,6 +55,7 @@ MENU_MUTED = (140, 152, 165)
 MENU_SELECTED = (28, 64, 108)
 MENU_CARD = (16, 22, 30)
 MENU_ROW = (22, 29, 39)
+CAMERA_FOLLOW_RATE = 4.0
 ENV_KINDS = ("passing", "drive", "role_play", "role_drive", "composition")
 LearnerPolicy = (
     QuarterbackPolicy
@@ -185,6 +186,10 @@ class TrainingDashboard:
                 for index in range(panels)
             ]
         self._grid = self._compute_grid(panels, screen_size)
+        field = self.scenario.config.field
+        self._cameras: list[tuple[float, float]] = [
+            (field.length_yards / 2.0, field.width_yards / 2.0) for _ in range(panels)
+        ]
 
     @property
     def panels(
@@ -383,12 +388,49 @@ class TrainingDashboard:
         self._update_menu_repeat(real_seconds)
         if self.paused:
             return
+        self._update_cameras(real_seconds)
         self._accumulator += real_seconds * self.speed
         dt = self.scenario.config.dt
         while self._accumulator >= dt:
             for panel in self._panels:
                 panel.tick()
             self._accumulator -= dt
+
+    def _update_cameras(self, real_seconds: float) -> None:
+        factor = min(1.0, real_seconds * CAMERA_FOLLOW_RATE)
+        for index, panel in enumerate(self._panels):
+            ball = panel.play.state.ball.position
+            camera_x, camera_y = self._cameras[index]
+            self._cameras[index] = (
+                camera_x + (float(ball[0]) - camera_x) * factor,
+                camera_y + (float(ball[1]) - camera_y) * factor,
+            )
+
+    def _panel_view(
+        self,
+        rect: pygame.Rect,
+        field_height: int,
+        index: int,
+        margin: int = 8,
+    ) -> ViewTransform:
+        field = self.scenario.config.field
+        usable_width = rect.width - 2 * margin
+        usable_height = field_height - 2 * margin
+        scale = usable_height / field.width_yards
+        visible_length = usable_width / scale
+        if visible_length >= field.length_yards:
+            return ViewTransform(field, rect.width, field_height, margin=margin)
+        half_length = visible_length / 2.0
+        camera_x, _ = self._cameras[index]
+        camera_x = min(max(camera_x, half_length), field.length_yards - half_length)
+        return ViewTransform(
+            field,
+            rect.width,
+            field_height,
+            margin=margin,
+            center=(camera_x, field.width_yards / 2.0),
+            visible_width_yards=field.width_yards,
+        )
 
     def _handle_events(self, events: list[pygame.event.Event]) -> None:
         for event in events:
@@ -621,31 +663,35 @@ class TrainingDashboard:
     def draw_frame(self) -> None:
         """Render every panel and the metrics column."""
         self.screen.fill((24, 28, 32))
-        for rect, panel in zip(self._grid, self._panels, strict=True):
-            self._draw_panel(rect, panel)
+        for index, (rect, panel) in enumerate(zip(self._grid, self._panels, strict=True)):
+            self._draw_panel(rect, panel, index)
             pygame.draw.rect(self.screen, (60, 66, 72), rect, 1)
         self._draw_metrics()
         if self._menu_mode is not None:
             self._draw_menu()
         pygame.display.flip()
 
-    def _draw_panel(self, rect: pygame.Rect, panel: DemoPanel | DriveDemoPanel) -> None:
+    def _draw_panel(
+        self,
+        rect: pygame.Rect,
+        panel: DemoPanel | DriveDemoPanel,
+        index: int,
+    ) -> None:
         margin = 8
         title_height = 26
-        field = self.scenario.config.field
-        scale = (rect.width - 2 * margin) / field.length_yards
-        field_height = int(field.width_yards * scale)
-        content_height = field_height + 2 * margin + title_height
+        content_height = rect.height
         surface = pygame.Surface((rect.width, content_height))
         field_surface = surface.subsurface(
             pygame.Rect(0, title_height, rect.width, content_height - title_height)
         )
-        view = ViewTransform(field, rect.width, content_height - title_height, margin=margin)
+        view = self._panel_view(rect, content_height - title_height, index, margin)
         state = panel.play.state
-        draw_field(field_surface, view)
+        goal_line = 100.0
+        if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel, CompositionDemoPanel)):
+            goal_line = panel.drive.drive_config.goal_line
+        draw_field(field_surface, view, goal_line)
         if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel, CompositionDemoPanel)):
             drive_state = panel.drive.state
-            goal_line = panel.drive.drive_config.goal_line
             first_down = min(drive_state.los + drive_state.distance, goal_line)
             draw_scrimmage(field_surface, view, drive_state.los, first_down, goal_line)
         draw_routes(field_surface, panel.receiver_routes, state, view)

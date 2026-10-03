@@ -9,41 +9,76 @@ from qb_sim.engine.geometry import FieldBounds, Vector2, vec2
 
 @dataclass(frozen=True, slots=True)
 class ViewTransform:
-    """Uniform-scale mapping between field yards and screen pixels."""
+    """Uniform-scale mapping between field yards and screen pixels.
+
+    Without a camera (``visible_width_yards=None``) the whole field fits inside
+    the margins. With a camera, the view shows a ``visible_width_yards`` band
+    centered on ``center`` and the length implied by the screen aspect, which
+    gives the broadcast-style follow view.
+    """
 
     field: FieldBounds
     screen_width: int
     screen_height: int
     margin: int = 20
+    center: tuple[float, float] | None = None
+    visible_width_yards: float | None = None
 
     def __post_init__(self) -> None:
         if self.screen_width <= 2 * self.margin or self.screen_height <= 2 * self.margin:
             raise ValueError("screen must be larger than twice the margin")
         if self.margin < 0:
             raise ValueError("margin must be non-negative")
+        if self.visible_width_yards is not None and self.visible_width_yards <= 0.0:
+            raise ValueError("visible_width_yards must be positive")
 
     @property
     def scale(self) -> float:
         """Pixels per yard for the largest uniform fit inside the margins."""
         usable_width = self.screen_width - 2 * self.margin
         usable_height = self.screen_height - 2 * self.margin
+        if self.visible_width_yards is not None:
+            return usable_height / self.visible_width_yards
         return min(
             usable_width / self.field.length_yards,
             usable_height / self.field.width_yards,
         )
 
+    @property
+    def visible_length_yards(self) -> float:
+        """Field length shown on screen, in yards."""
+        if self.visible_width_yards is None:
+            return self.field.length_yards
+        usable_width = self.screen_width - 2 * self.margin
+        return usable_width / self.scale
+
+    def _origin(self) -> tuple[float, float]:
+        if self.visible_width_yards is None:
+            return 0.0, 0.0
+        center_x, center_y = (
+            self.center
+            if self.center is not None
+            else (self.field.length_yards / 2.0, self.field.width_yards / 2.0)
+        )
+        return (
+            center_x - self.visible_length_yards / 2.0,
+            center_y - self.visible_width_yards / 2.0,
+        )
+
     def to_screen(self, point: Vector2) -> Vector2:
         """Map a field point in yards to screen pixels (y grows downward)."""
+        origin_x, origin_y = self._origin()
         return vec2(
-            self.margin + point[0] * self.scale,
-            self.screen_height - self.margin - point[1] * self.scale,
+            self.margin + (point[0] - origin_x) * self.scale,
+            self.screen_height - self.margin - (point[1] - origin_y) * self.scale,
         )
 
     def to_field(self, point: Vector2) -> Vector2:
         """Map a screen pixel back to field yards."""
+        origin_x, origin_y = self._origin()
         return vec2(
-            (point[0] - self.margin) / self.scale,
-            (self.screen_height - self.margin - point[1]) / self.scale,
+            origin_x + (point[0] - self.margin) / self.scale,
+            origin_y + (self.screen_height - self.margin - point[1]) / self.scale,
         )
 
 

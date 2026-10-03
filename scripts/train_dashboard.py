@@ -40,7 +40,7 @@ def main() -> None:
         metavar="ID=PATH",
         help="Frozen opponent policy for role modes; repeatable.",
     )
-    parser.add_argument("--panels", type=int, default=6)
+    parser.add_argument("--panels", type=int, default=None)
     parser.add_argument("--train", action="store_true", help="Launch training as a subprocess")
     parser.add_argument(
         "--force",
@@ -60,6 +60,7 @@ def main() -> None:
         "composition": "qb",
     }
     learner = args.learner or default_learners[args.env]
+    panels = args.panels if args.panels is not None else (2 if args.env == "composition" else 6)
     opponents: list[tuple[str, str]] = []
     for entry in args.opponent:
         parts = entry.split("=", 1)
@@ -114,7 +115,7 @@ def main() -> None:
         TrainingDashboard(
             run_dir,
             scenario_name=args.scenario,
-            panels=args.panels,
+            panels=panels,
             env_kind=args.env,
             learner=learner,
             opponent_policies=opponent_policies,
