@@ -386,7 +386,10 @@ class Play:
                     )
                 )
 
-        for order, player_id in enumerate(self._defender_ids):
+        coverage_ids = [
+            player_id for player_id in self._defender_ids if player_id not in self._rusher_ids
+        ]
+        for order, player_id in enumerate(coverage_ids):
             contact = self._contact_fraction(
                 player_id, previous_positions, ball_start, ball_end, ball_travel_fraction
             )
@@ -397,6 +400,22 @@ class Play:
                         0,
                         order,
                         PlayOutcome.INTERCEPTION,
+                        contact,
+                        player_id,
+                    )
+                )
+
+        for order, player_id in enumerate(self._rusher_ids):
+            contact = self._contact_fraction(
+                player_id, previous_positions, ball_start, ball_end, ball_travel_fraction
+            )
+            if contact is not None:
+                events.append(
+                    _PassEvent(
+                        contact * ball_travel_fraction,
+                        0,
+                        order,
+                        PlayOutcome.INCOMPLETE,
                         contact,
                         player_id,
                     )

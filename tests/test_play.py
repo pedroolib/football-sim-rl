@@ -441,6 +441,24 @@ def test_defender_intercepts_a_pass_crossing_its_path() -> None:
     assert state.outcome is PlayOutcome.INTERCEPTION
 
 
+def test_pass_rusher_bats_the_ball_down_instead_of_intercepting() -> None:
+    config = replace(
+        ZERO_DEVIATION,
+        quarterback_start=(20.0, 26.65),
+        receiver_starts=((30.0, 43.0), (119.0, 0.0)),
+        defender_starts=((0.0, 0.0), (0.0, 0.0)),
+        rusher_starts=((28.7, 40.87),),
+        rusher_speed=1.0,
+    )
+    play = Play(config)
+    agents = _make_agents(play)
+    play.throw_with_lead(0.0)
+
+    state = _run_until_terminal(play, agents)
+
+    assert state.outcome is PlayOutcome.INCOMPLETE
+
+
 def test_ball_flying_above_a_defender_is_not_intercepted() -> None:
     config = replace(
         ZERO_DEVIATION,
