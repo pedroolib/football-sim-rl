@@ -57,6 +57,7 @@ class TrainingDashboard:
         env_kind: str = "passing",
         learner: str = "wr1",
         opponent_policies: dict | None = None,
+        training: bool = False,
     ) -> None:
         if env_kind not in ENV_KINDS:
             raise ValueError(f"unknown env_kind: {env_kind!r}")
@@ -64,6 +65,7 @@ class TrainingDashboard:
         self.run_dir = Path(run_dir)
         self.env_kind = env_kind
         self.learner = learner
+        self.training = training
         self.scenario = get_scenario(scenario_name)
         self.screen = pygame.display.set_mode(screen_size)
         pygame.display.set_caption(f"QB Lab — {self.run_dir.name}")
@@ -148,6 +150,10 @@ class TrainingDashboard:
     def live(self) -> bool:
         """Whether the dashboard follows the newest checkpoint."""
         return self._live
+
+    def mode_label(self) -> str:
+        """Whether the dashboard is training or replaying saved policies."""
+        return "entrenando" if self.training else "demo"
 
     def _default_policy_factory(
         self, path: Path
@@ -378,6 +384,7 @@ class TrainingDashboard:
         reward = progress[-1][1] if progress else 0.0
         lines = [
             f"run: {self.run_dir.name}",
+            f"modo: {self.mode_label()}",
             f"timesteps: {timesteps:,}",
             f"ep_rew_mean: {reward:0.3f}",
             self.checkpoint_status(),

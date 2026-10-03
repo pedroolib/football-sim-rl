@@ -1,6 +1,9 @@
 import pytest
 
 from qb_sim.agents.rule_controllers import HeuristicQuarterback
+from qb_sim.engine.actions import Throw
+from qb_sim.engine.entities import BallStatus
+from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import get_scenario
@@ -14,6 +17,7 @@ from qb_sim.training.monitoring import (
     checkpoint_steps,
     latest_checkpoint,
     read_progress,
+    run_has_training_artifacts,
     total_timesteps,
 )
 
@@ -162,6 +166,57 @@ def test_role_play_panel_is_deterministic_for_a_seed() -> None:
         second.play.state.player("wr1").position.tolist()
     )
     assert first.routes == second.routes
+
+
+def test_role_play_panel_calls_the_qb_opponent_and_throws() -> None:
+    calls: list[int] = []
+
+    def qb(state, routes, drive_state):
+        calls.append(1)
+        if state.ball.status is BallStatus.HELD:
+            return Throw(direction=vec2(1.0, 0.0), power=1.0)
+        return None
+
+    panel = RolePlayDemoPanel(
+        get_scenario("stage_b"),
+        learner_id="wr1",
+        opponents={"qb": qb},
+        seed=0,
+    )
+
+    for _ in range(5):
+        panel.tick()
+
+    assert calls
+    assert panel.play.state.throw_time is not None
+
+
+def test_role_drive_panel_calls_the_qb_opponent() -> None:
+    calls: list[int] = []
+
+    def qb(state, routes, drive_state):
+        calls.append(1)
+        return None
+
+    panel = RoleDriveDemoPanel(
+        get_scenario("stage_b"),
+        learner_id="cb1",
+        opponents={"qb": qb},
+        seed=0,
+        drive_config=DriveConfig(los_range=(40.0, 40.0)),
+    )
+
+    panel.tick()
+
+    assert calls
+
+
+def test_run_has_training_artifacts(tmp_path) -> None:
+    assert not run_has_training_artifacts(tmp_path)
+
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+
+    assert run_has_training_artifacts(tmp_path)
 
 
 def test_role_drive_panel_tracks_drives() -> None:

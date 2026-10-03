@@ -89,6 +89,11 @@ def total_timesteps(run_dir: str | Path) -> int | None:
     return int(value) if value is not None else None
 
 
+def run_has_training_artifacts(run_dir: str | Path) -> bool:
+    """Whether the run directory already holds a training run's metadata."""
+    return (Path(run_dir) / "config.json").is_file()
+
+
 
 def read_progress(run_dir: str | Path) -> list[tuple[int, float]]:
     """Read ``(timesteps, ep_rew_mean)`` pairs from the SB3 progress CSV."""
@@ -433,7 +438,8 @@ class RolePlayDemoPanel:
             return self._play.state
 
         actions: dict[str, Move | Throw] = {}
-        for player_id, agent in self._agents.items():
+        actors: dict = {**self._agents, **self.opponents}
+        for player_id, actor in actors.items():
             if player_id == self.learner_id:
                 continue
             if player_id in self.opponents:
@@ -441,11 +447,11 @@ class RolePlayDemoPanel:
                     self._play,
                     self._routes,
                     player_id,
-                    self.opponents[player_id],
+                    actor,
                     self._drive_context,
                 )
             else:
-                decided = agent.decide(state)
+                decided = actor.decide(state)
             if decided is not None:
                 actions[player_id] = decided
         if self.policy is not None:
@@ -564,7 +570,8 @@ class RoleDriveDemoPanel:
             return self._play.state
 
         actions: dict[str, Move | Throw] = {}
-        for player_id, agent in self._agents.items():
+        actors: dict = {**self._agents, **self.opponents}
+        for player_id, actor in actors.items():
             if player_id == self.learner_id:
                 continue
             if player_id in self.opponents:
@@ -572,11 +579,11 @@ class RoleDriveDemoPanel:
                     self._play,
                     self._drive.routes,
                     player_id,
-                    self.opponents[player_id],
+                    actor,
                     self._drive.state,
                 )
             else:
-                decided = agent.decide(state)
+                decided = actor.decide(state)
             if decided is not None:
                 actions[player_id] = decided
         if self.policy is not None:

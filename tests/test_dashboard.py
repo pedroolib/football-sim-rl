@@ -139,6 +139,25 @@ def test_dashboard_arrow_keys_change_checkpoints(dummy_video, tmp_path) -> None:
         dashboard.close()
 
 
+def test_dashboard_mode_label(dummy_video, tmp_path) -> None:
+    dashboard = TrainingDashboard(
+        tmp_path,
+        panels=1,
+        screen_size=(320, 240),
+        training=True,
+    )
+    try:
+        assert dashboard.mode_label() == "entrenando"
+    finally:
+        dashboard.close()
+
+    dashboard = TrainingDashboard(tmp_path, panels=1, screen_size=(320, 240))
+    try:
+        assert dashboard.mode_label() == "demo"
+    finally:
+        dashboard.close()
+
+
 def test_dashboard_role_play_mode_runs_plays(dummy_video, tmp_path) -> None:
     dashboard = TrainingDashboard(
         tmp_path,

@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from qb_sim.rules.scenarios import SCENARIOS
+from qb_sim.training.monitoring import run_has_training_artifacts
 from qb_sim.ui.dashboard import TrainingDashboard
 
 
@@ -36,6 +37,11 @@ def main() -> None:
     )
     parser.add_argument("--panels", type=int, default=6)
     parser.add_argument("--train", action="store_true", help="Launch training as a subprocess")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow --train to overwrite an existing run directory",
+    )
     parser.add_argument("--timesteps", type=int, default=200_000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="auto")
@@ -56,6 +62,13 @@ def main() -> None:
         opponent_policies = build_opponents(args.env, args.scenario, opponents)
 
     run_dir = Path(args.output_dir) / args.run_name
+    if args.train and run_has_training_artifacts(run_dir) and not args.force:
+        parser.error(
+            f"{run_dir} ya tiene un entrenamiento guardado (config.json).\n"
+            "  - Para verlo sin entrenar: quitá --train.\n"
+            "  - Para entrenar algo nuevo: usá otro --run-name.\n"
+            "  - Para reentrenar sobre este run: agregá --force."
+        )
     process = None
     if args.train:
         command = [
@@ -90,6 +103,7 @@ def main() -> None:
             env_kind=args.env,
             learner=learner,
             opponent_policies=opponent_policies,
+            training=args.train,
         ).run()
     finally:
         if process is not None:
