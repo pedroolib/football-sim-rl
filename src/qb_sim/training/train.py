@@ -18,7 +18,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER
@@ -50,13 +50,19 @@ class AttemptAnnealingCallback(BaseCallback):
     def __init__(self, decay_steps: int, verbose: int = 0) -> None:
         super().__init__(verbose)
         self._decay_steps = max(int(decay_steps), 1)
+        self._supports_attempt_scale: bool | None = None
+        self._applied_scale: float | None = None
 
     def _on_step(self) -> bool:
         scale = max(0.0, 1.0 - self.num_timesteps / self._decay_steps)
-        for env in self.model.get_env().envs:
-            target = env.unwrapped
-            if hasattr(target, "set_attempt_scale"):
-                target.set_attempt_scale(scale)
+        if scale == self._applied_scale:
+            return True
+        env = self.model.get_env()
+        if self._supports_attempt_scale is None:
+            self._supports_attempt_scale = env.has_attr("set_attempt_scale")
+        if self._supports_attempt_scale:
+            env.env_method("set_attempt_scale", scale)
+        self._applied_scale = scale
         return True
 
 
@@ -130,6 +136,30 @@ def build_env(
     return MultiScenarioEnv(scenario_names)
 
 
+class _EnvSpec:
+    """Picklable env factory so SubprocVecEnv workers can rebuild the env."""
+
+    def __init__(self, scenarios, env_kind, learner, opponents):
+        self.scenarios = tuple(scenarios)
+        self.env_kind = env_kind
+        self.learner = learner
+        self.opponents = tuple(opponents)
+
+    def __call__(self):
+        return Monitor(build_env(self.scenarios, self.env_kind, self.learner, self.opponents))
+
+
+def build_vec_env(config: PPOConfig, scenarios: tuple[str, ...]):
+    """Single DummyVecEnv or a forked SubprocVecEnv depending on ``n_envs``."""
+    factories = [
+        _EnvSpec(scenarios, config.env_kind, config.learner, config.opponents)
+        for _ in range(max(config.n_envs, 1))
+    ]
+    if config.n_envs <= 1:
+        return DummyVecEnv(factories)
+    return SubprocVecEnv(factories, start_method="fork")
+
+
 def build_model(config: PPOConfig, env) -> PPO:
     """Create a PPO model with the experiment hyperparameters."""
     return PPO(
@@ -161,19 +191,9 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     run_dir = Path(config.output_dir) / config.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     scenarios = effective_scenarios(config)
-    env = DummyVecEnv(
-        [
-            lambda: Monitor(
-                build_env(scenarios, config.env_kind, config.learner, config.opponents)
-            )
-        ]
-    )
+    env = build_vec_env(config, scenarios)
     eval_env = DummyVecEnv(
-        [
-            lambda: Monitor(
-                build_env(scenarios, config.env_kind, config.learner, config.opponents)
-            )
-        ]
+        [_EnvSpec(scenarios, config.env_kind, config.learner, config.opponents)]
     )
 
     if resume is not None:
@@ -277,6 +297,7 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     metadata["imitation_loss"] = imitation_loss
     metadata["env_kind"] = config.env_kind
     metadata["learner"] = config.learner
+    metadata["n_envs"] = config.n_envs
     metadata["opponents"] = [list(pair) for pair in config.opponents]
     if config.env_kind == "drive":
         metadata["observation_size"] = DRIVE_OBSERVATION_SIZE

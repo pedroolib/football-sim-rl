@@ -273,6 +273,52 @@ def test_role_drive_training_smoke(tmp_path) -> None:
     assert metadata["learner"] == "cb1"
 
 
+def test_training_with_two_subprocess_envs(tmp_path) -> None:
+    config = PPOConfig(
+        run_name="subproc-run",
+        env_kind="role_play",
+        scenario="stage_b",
+        learner="wr1",
+        total_timesteps=128,
+        seed=0,
+        n_envs=2,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=1,
+        imitation_episodes=0,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    model, _ = train(config)
+
+    metadata = json.loads((tmp_path / "subproc-run" / "config.json").read_text())
+    assert metadata["n_envs"] == 2
+    assert model.get_env().num_envs == 2
+
+
+def test_annealing_callback_updates_subprocess_envs() -> None:
+    from types import SimpleNamespace
+
+    from qb_sim.training.train import AttemptAnnealingCallback, build_vec_env
+
+    config = PPOConfig(env_kind="drive", scenario="stage_b", n_envs=2)
+    env = build_vec_env(config, ("stage_b",))
+    try:
+        callback = AttemptAnnealingCallback(decay_steps=1)
+        callback.model = SimpleNamespace(get_env=lambda: env)
+        callback.num_timesteps = 10
+
+        assert callback._on_step()
+        assert env.get_attr("attempt_scale") == [0.0, 0.0]
+    finally:
+        env.close()
+
+
 def test_role_play_qb_opponent_uses_the_drive_loader(monkeypatch) -> None:
     from qb_sim.training import policy
     from qb_sim.training.train import build_opponents
