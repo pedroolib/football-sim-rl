@@ -139,8 +139,9 @@ def draw_players(
     state: PlayState,
     view: ViewTransform,
     rusher_ids: frozenset[str] = frozenset(),
+    highlight_ids: frozenset[str] = frozenset(),
 ) -> None:
-    """Draw every player as a circle colored by role; rushers stand out."""
+    """Draw every player as a circle colored by role; rushers and learners stand out."""
     for player in state.players:
         if player.player_id in rusher_ids:
             color = RUSHER_COLOR
@@ -153,6 +154,14 @@ def draw_players(
                 (120, 60, 10),
                 _screen_int(view, player.position),
                 PLAYER_RADIUS,
+                2,
+            )
+        if player.player_id in highlight_ids:
+            pygame.draw.circle(
+                surface,
+                (255, 255, 255),
+                _screen_int(view, player.position),
+                PLAYER_RADIUS + 4,
                 2,
             )
 

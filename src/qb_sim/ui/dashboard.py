@@ -13,6 +13,8 @@ from qb_sim.training.monitoring import (
     DriveDemoPanel,
     DriveQuarterbackPolicy,
     QuarterbackPolicy,
+    RoleDriveDemoPanel,
+    RolePlayDemoPanel,
     checkpoint_catalog,
     checkpoint_label,
     latest_checkpoint,
@@ -38,7 +40,7 @@ DEFAULT_RELOAD_SECONDS = 5.0
 _SPEED_KEYS = {pygame.K_1: 1, pygame.K_2: 2, pygame.K_3: 4}
 _PREVIOUS_KEYS = (pygame.K_LEFT, pygame.K_LEFTBRACKET)
 _NEXT_KEYS = (pygame.K_RIGHT, pygame.K_RIGHTBRACKET)
-ENV_KINDS = ("passing", "drive")
+ENV_KINDS = ("passing", "drive", "role_play", "role_drive")
 
 
 class TrainingDashboard:
@@ -53,12 +55,15 @@ class TrainingDashboard:
         reload_seconds: float = DEFAULT_RELOAD_SECONDS,
         policy_factory: Callable[[Path], QuarterbackPolicy | DriveQuarterbackPolicy] | None = None,
         env_kind: str = "passing",
+        learner: str = "wr1",
+        opponent_policies: dict | None = None,
     ) -> None:
         if env_kind not in ENV_KINDS:
             raise ValueError(f"unknown env_kind: {env_kind!r}")
         pygame.init()
         self.run_dir = Path(run_dir)
         self.env_kind = env_kind
+        self.learner = learner
         self.scenario = get_scenario(scenario_name)
         self.screen = pygame.display.set_mode(screen_size)
         pygame.display.set_caption(f"QB Lab — {self.run_dir.name}")
@@ -74,10 +79,39 @@ class TrainingDashboard:
         self._checkpoint_path: Path | None = None
         self._catalog: list[Path] = checkpoint_catalog(self.run_dir)
         self._live = True
+        self._opponents = dict(opponent_policies or {})
         if env_kind == "drive":
-            self._policy = rule_drive_quarterback_policy(self.scenario.config)
-            self._panels: list[DemoPanel | DriveDemoPanel] = [
+            self._policy: QuarterbackPolicy | DriveQuarterbackPolicy | None = (
+                rule_drive_quarterback_policy(self.scenario.config)
+            )
+            self._panels: list[
+                DemoPanel | DriveDemoPanel | RolePlayDemoPanel | RoleDriveDemoPanel
+            ] = [
                 DriveDemoPanel(self.scenario, policy=self._policy, seed=1000 + index)
+                for index in range(panels)
+            ]
+        elif env_kind == "role_play":
+            self._policy = None
+            self._panels = [
+                RolePlayDemoPanel(
+                    self.scenario,
+                    learner_id=self.learner,
+                    policy=None,
+                    opponents=self._opponents,
+                    seed=1000 + index,
+                )
+                for index in range(panels)
+            ]
+        elif env_kind == "role_drive":
+            self._policy = None
+            self._panels = [
+                RoleDriveDemoPanel(
+                    self.scenario,
+                    learner_id=self.learner,
+                    policy=None,
+                    opponents=self._opponents,
+                    seed=1000 + index,
+                )
                 for index in range(panels)
             ]
         else:
@@ -94,7 +128,9 @@ class TrainingDashboard:
         self._grid = self._compute_grid(panels, screen_size)
 
     @property
-    def panels(self) -> list[DemoPanel | DriveDemoPanel]:
+    def panels(
+        self,
+    ) -> list[DemoPanel | DriveDemoPanel | RolePlayDemoPanel | RoleDriveDemoPanel]:
         """Demo panels in display order."""
         return self._panels
 
@@ -104,8 +140,8 @@ class TrainingDashboard:
         return self._checkpoint_path
 
     @property
-    def policy(self) -> QuarterbackPolicy | DriveQuarterbackPolicy:
-        """Quarterback policy currently used by the panels."""
+    def policy(self) -> QuarterbackPolicy | DriveQuarterbackPolicy | None:
+        """Learner policy currently used by the panels."""
         return self._policy
 
     @property
@@ -116,6 +152,14 @@ class TrainingDashboard:
     def _default_policy_factory(
         self, path: Path
     ) -> QuarterbackPolicy | DriveQuarterbackPolicy:
+        if self.env_kind == "role_play":
+            from qb_sim.training.policy import load_receiver_policy
+
+            return load_receiver_policy(path, self.scenario.name, self.learner)
+        if self.env_kind == "role_drive":
+            from qb_sim.training.policy import load_defender_policy
+
+            return load_defender_policy(path, self.scenario.name, self.learner)
         if self.env_kind == "drive":
             from qb_sim.training.policy import load_drive_policy
 
@@ -278,18 +322,36 @@ class TrainingDashboard:
         view = ViewTransform(field, rect.width, content_height - title_height, margin=margin)
         state = panel.play.state
         draw_field(field_surface, view)
-        if isinstance(panel, DriveDemoPanel):
+        if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel)):
             drive_state = panel.drive.state
             goal_line = panel.drive.drive_config.goal_line
             first_down = min(drive_state.los + drive_state.distance, goal_line)
             draw_scrimmage(field_surface, view, drive_state.los, first_down, goal_line)
         draw_routes(field_surface, panel.receiver_routes, state, view)
-        draw_players(field_surface, state, view, frozenset(panel.play.rusher_ids))
+        highlight = (
+            frozenset({panel.learner_id})
+            if isinstance(panel, (RolePlayDemoPanel, RoleDriveDemoPanel))
+            else frozenset()
+        )
+        draw_players(
+            field_surface,
+            state,
+            view,
+            frozenset(panel.play.rusher_ids),
+            highlight,
+        )
         draw_ball(field_surface, state, view)
-        if isinstance(panel, DriveDemoPanel):
+        if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel)):
             label = panel.last_outcome or panel.down_label
             title = self.font.render(
                 f"{label}  TD {panel.touchdown_pct:0.0f}%",
+                True,
+                (240, 240, 240),
+            )
+        elif isinstance(panel, RolePlayDemoPanel):
+            label = panel.last_outcome or "in_progress"
+            title = self.font.render(
+                f"{label}  {panel.catch_pct:0.0f}%",
                 True,
                 (240, 240, 240),
             )
@@ -332,6 +394,30 @@ class TrainingDashboard:
                     f"({100.0 * touchdowns / drives if drives else 0.0:0.0f}%)",
                     f"puntos/drive: {points / drives if drives else 0.0:0.3f}",
                     f"1er downs/drive: {first_downs / drives if drives else 0.0:0.2f}",
+                )
+            )
+        elif self.env_kind == "role_play":
+            plays = sum(panel.plays for panel in self._panels)
+            catches = sum(panel.catches for panel in self._panels)
+            yards = sum(panel.yards for panel in self._panels)
+            lines.extend(
+                (
+                    f"jugadas: {plays}",
+                    f"atrapadas: {catches} "
+                    f"({100.0 * catches / plays if plays else 0.0:0.0f}%)",
+                    f"yardas/atrapada: {yards / catches if catches else 0.0:0.2f}",
+                )
+            )
+        elif self.env_kind == "role_drive":
+            drives = sum(panel.drives for panel in self._panels)
+            allowed = sum(panel.touchdowns_allowed for panel in self._panels)
+            sacks = sum(panel.sacks for panel in self._panels)
+            lines.extend(
+                (
+                    f"drives: {drives}",
+                    f"TD permitidos: {allowed} "
+                    f"({100.0 * allowed / drives if drives else 0.0:0.0f}%)",
+                    f"sacks: {sacks}",
                 )
             )
         else:

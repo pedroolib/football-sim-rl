@@ -1,9 +1,14 @@
+import pytest
+
+from qb_sim.agents.rule_controllers import HeuristicQuarterback
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.monitoring import (
     DemoPanel,
     DriveDemoPanel,
+    RoleDriveDemoPanel,
+    RolePlayDemoPanel,
     checkpoint_catalog,
     checkpoint_label,
     checkpoint_steps,
@@ -121,3 +126,59 @@ def test_drive_panel_is_deterministic_for_a_seed() -> None:
 
     assert first.drive.routes == second.drive.routes
     assert first.drive.state.los == second.drive.state.los
+
+
+def _rule_qb() -> HeuristicQuarterback:
+    return HeuristicQuarterback("qb", get_scenario("stage_b").config)
+
+
+def test_role_play_panel_runs_plays_with_rule_agents() -> None:
+    panel = RolePlayDemoPanel(
+        get_scenario("stage_b"),
+        learner_id="wr1",
+        opponents={"qb": _rule_qb()},
+        seed=0,
+    )
+
+    for _ in range(600):
+        panel.tick()
+        if panel.plays >= 1:
+            break
+
+    assert panel.plays >= 1
+    assert panel.last_outcome != ""
+
+
+def test_role_play_panel_is_deterministic_for_a_seed() -> None:
+    scenario = get_scenario("stage_b")
+    first = RolePlayDemoPanel(scenario, seed=7, opponents={"qb": _rule_qb()})
+    second = RolePlayDemoPanel(scenario, seed=7, opponents={"qb": _rule_qb()})
+
+    for _ in range(30):
+        first.tick()
+        second.tick()
+
+    assert first.play.state.player("wr1").position.tolist() == pytest.approx(
+        second.play.state.player("wr1").position.tolist()
+    )
+    assert first.routes == second.routes
+
+
+def test_role_drive_panel_tracks_drives() -> None:
+    scenario = get_scenario("stage_b")
+    panel = RoleDriveDemoPanel(
+        scenario,
+        learner_id="cb1",
+        opponents={"qb": _rule_qb()},
+        seed=0,
+        drive_config=DriveConfig(los_range=(40.0, 40.0)),
+    )
+
+    for _ in range(2000):
+        panel.tick()
+        if panel.drives >= 1:
+            break
+
+    assert panel.drives >= 1
+    assert panel.last_outcome != ""
+    assert panel.down_label != ""
