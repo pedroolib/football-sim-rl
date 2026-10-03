@@ -83,6 +83,46 @@ def test_model_menu_discovers_runs_by_config(tmp_path) -> None:
     assert menu.labels("ru1") == ["reglas", "ppo_ru_v1_bc"]
 
 
+def test_model_menu_discovers_nested_position_runs(tmp_path) -> None:
+    def _write(relative, kind, learner):
+        directory = tmp_path / relative
+        directory.mkdir(parents=True)
+        (directory / "config.json").write_text(
+            json.dumps({"env_kind": kind, "learner": learner}), encoding="utf-8"
+        )
+        (directory / "final_model.zip").touch()
+
+    _write("qb/drive/trained_roles_v12", "drive", "qb")
+    _write("wr/route_progress_v1", "role_play", "wr1")
+    _write("cb/context_shaping_v1", "role_drive", "cb1")
+    _write("ru/bc_parity_v1", "role_drive", "ru1")
+
+    menu = ModelMenu.discover(tmp_path)
+
+    assert menu.labels("qb") == ["reglas", "trained_roles_v12"]
+    assert menu.labels("wr1") == ["reglas", "route_progress_v1"]
+    assert menu.labels("cb2") == ["reglas", "context_shaping_v1"]
+    assert menu.labels("ru1") == ["reglas", "bc_parity_v1"]
+
+
+def test_model_menu_skips_history_and_pilots(tmp_path) -> None:
+    def _write(relative, kind, learner):
+        directory = tmp_path / relative
+        directory.mkdir(parents=True)
+        (directory / "config.json").write_text(
+            json.dumps({"env_kind": kind, "learner": learner}), encoding="utf-8"
+        )
+        (directory / "final_model.zip").touch()
+
+    _write("qb/drive/trained_roles_v12", "drive", "qb")
+    _write("qb/play/history/baseline_v10", "passing", "qb")
+    _write("qb/drive/pilots/random_routes_v11_pilot", "drive", "qb")
+
+    menu = ModelMenu.discover(tmp_path)
+
+    assert menu.labels("qb") == ["reglas", "trained_roles_v12"]
+
+
 def test_model_menu_cycles_and_chooses_current_path(tmp_path) -> None:
     directory = tmp_path / "ppo_wr_v1"
     directory.mkdir()

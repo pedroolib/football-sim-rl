@@ -3,8 +3,8 @@
 Example:
 
     python scripts/evaluate_ppo.py \
-        --ppo rules=runs/ppo_default/final_model.zip \
-        --episodes 100 --output runs/evaluation.json
+        --ppo rules=runs/qb/play/baseline_v10/final_model.zip \
+        --episodes 100 --output runs/reports/evaluation.json
 """
 
 import argparse
@@ -46,7 +46,7 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=DEFAULT_EPISODES)
     parser.add_argument("--seed-start", type=int, default=DEFAULT_SEED_START)
     parser.add_argument("--scenarios", default="default,pressured,deep")
-    parser.add_argument("--output", default="runs/evaluation.json")
+    parser.add_argument("--output", default="runs/reports/evaluation.json")
     args = parser.parse_args()
 
     seeds = range(args.seed_start, args.seed_start + args.episodes)

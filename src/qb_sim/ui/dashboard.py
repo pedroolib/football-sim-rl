@@ -210,15 +210,15 @@ class TrainingDashboard:
         if qb_model is not None:
             self._model_menu.choose("qb", Path(qb_model).parent.name)
         else:
-            for label in ("ppo_drive_qb_v12", "ppo_drive_qb_v11"):
+            for label in ("trained_roles_v12", "random_routes_v11"):
                 if self._model_menu.choose("qb", label):
                     break
         defaults = {
-            "wr1": ("ppo_wr_v1",),
-            "wr2": ("ppo_wr_v1",),
-            "cb1": ("ppo_cb_v1",),
-            "cb2": ("ppo_cb_v1",),
-            "ru1": ("ppo_ru_v1_bc", "ppo_ru_v1"),
+            "wr1": ("route_progress_v1",),
+            "wr2": ("route_progress_v1",),
+            "cb1": ("context_shaping_v1",),
+            "cb2": ("context_shaping_v1",),
+            "ru1": ("bc_parity_v1", "lr5_interception_v1"),
         }
         for role, labels in defaults.items():
             for label in labels:

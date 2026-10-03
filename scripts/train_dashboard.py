@@ -2,7 +2,7 @@
 
 Example (single command demo):
 
-    python scripts/train_dashboard.py --train --run-name ppo_default_v2
+    python scripts/train_dashboard.py --train --run-name qb/drive/new_run
 
 Record the window with OBS or any screen recorder; press Esc to exit.
 """
@@ -19,7 +19,7 @@ from qb_sim.ui.dashboard import TrainingDashboard
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="QB Lab live training dashboard")
-    parser.add_argument("--run-name", default="ppo_default_v2")
+    parser.add_argument("--run-name", default=None)
     parser.add_argument("--output-dir", default="runs")
     parser.add_argument("--scenario", default="rushed", choices=sorted(SCENARIOS))
     parser.add_argument(
@@ -61,6 +61,14 @@ def main() -> None:
     }
     learner = args.learner or default_learners[args.env]
     panels = args.panels if args.panels is not None else (2 if args.env == "composition" else 6)
+    default_runs = {
+        "passing": "qb/play/new_run",
+        "drive": "qb/drive/new_run",
+        "role_play": "wr/new_run",
+        "role_drive": "ru/new_run" if learner == "ru1" else "cb/new_run",
+        "composition": "qb/drive/new_run",
+    }
+    run_name = args.run_name or default_runs[args.env]
     opponents: list[tuple[str, str]] = []
     for entry in args.opponent:
         parts = entry.split("=", 1)
@@ -77,7 +85,7 @@ def main() -> None:
             "composition no entrena: elegí --env drive, role_play o role_drive con --train."
         )
 
-    run_dir = Path(args.output_dir) / args.run_name
+    run_dir = Path(args.output_dir) / run_name
     if args.train and run_has_training_artifacts(run_dir) and not args.force:
         parser.error(
             f"{run_dir} ya tiene un entrenamiento guardado (config.json).\n"
@@ -96,7 +104,7 @@ def main() -> None:
             "--seed",
             str(args.seed),
             "--run-name",
-            args.run_name,
+            run_name,
             "--output-dir",
             args.output_dir,
             "--scenario",

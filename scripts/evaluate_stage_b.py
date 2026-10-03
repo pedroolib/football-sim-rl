@@ -3,12 +3,12 @@
 Examples:
 
     python scripts/evaluate_stage_b.py wr --episodes 100 \
-        --ppo wr1=runs/ppo_wr_v1/final_model.zip \
-        --opponent qb=runs/ppo_drive_qb_v11/final_model.zip
+        --ppo wr1=runs/wr/route_progress_v1/final_model.zip \
+        --opponent qb=runs/qb/drive/random_routes_v11/final_model.zip
     python scripts/evaluate_stage_b.py composition --episodes 100 \
-        --ppo qb=runs/ppo_drive_qb_v12/final_model.zip \
-        --opponent wr1=runs/ppo_wr_v1/final_model.zip \
-        --opponent cb1=runs/ppo_cb_v1/final_model.zip
+        --ppo qb=runs/qb/drive/trained_roles_v12/final_model.zip \
+        --opponent wr1=runs/wr/route_progress_v1/final_model.zip \
+        --opponent cb1=runs/cb/context_shaping_v1/final_model.zip
 
 The ``cb`` and ``ru`` modes require ``--opponent qb=PATH``: without a
 quarterback opponent the QB stays passive and the metrics are meaningless.
@@ -106,7 +106,7 @@ def main() -> None:
         for key, value in summary.items():
             print(f"  {key}: {value}")
 
-    output = Path(args.output or f"runs/stage_b_evaluation_{args.mode}.json")
+    output = Path(args.output or f"runs/reports/stage_b_evaluation_{args.mode}.json")
     output.parent.mkdir(parents=True, exist_ok=True)
     metadata = {
         "mode": args.mode,

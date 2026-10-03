@@ -3,8 +3,8 @@
 Example:
 
     python scripts/evaluate_drive.py \
-        --ppo v11=runs/ppo_drive_qb_v11/final_model.zip \
-        --episodes 100 --output runs/drive_evaluation_v11.json
+        --ppo v11=runs/qb/drive/random_routes_v11/final_model.zip \
+        --episodes 100 --output runs/reports/drive_evaluation_v11.json
 """
 
 import argparse
@@ -38,7 +38,7 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=DEFAULT_EPISODES)
     parser.add_argument("--seed-start", type=int, default=DEFAULT_SEED_START)
     parser.add_argument("--scenario", default="rushed")
-    parser.add_argument("--output", default="runs/drive_evaluation.json")
+    parser.add_argument("--output", default="runs/reports/drive_evaluation.json")
     args = parser.parse_args()
 
     scenario = get_scenario(args.scenario)

@@ -96,8 +96,8 @@ Evaluation uses a fixed seed set separate from training:
 
 ```bash
 python scripts/evaluate_ppo.py --episodes 100 --seed-start 10000 \
-    --ppo rules=runs/ppo_default_v7/final_model.zip --output runs/evaluation.json
-python scripts/analyze_ppo.py --model runs/ppo_default_v7/final_model.zip --scenario rushed
+    --ppo rules=runs/qb/play/history/ppo_default_v7/final_model.zip --output runs/reports/evaluation.json
+python scripts/analyze_ppo.py --model runs/qb/play/history/ppo_default_v7/final_model.zip --scenario rushed
 ```
 
 ## Training dashboard (video)
@@ -168,7 +168,7 @@ print(session.play.state.outcome, session.play.state.ball.position)
 ```bash
 python -m qb_sim.ui.pygame_app                      # rushed by default: an orange pass rusher hunts the QB
 python -m qb_sim.ui.pygame_app --scenario default   # no rusher
-python -m qb_sim.ui.pygame_app --model runs/ppo_default_v7/final_model.zip --scenario rushed
+python -m qb_sim.ui.pygame_app --model runs/qb/play/history/ppo_default_v7/final_model.zip --scenario rushed
 ```
 
 The pass rusher is drawn in orange with a dark outline; the other defenders are red. `--scenario` selects any registered scenario. The simulator itself never depends on a display. Multi-agent play belongs to a later milestone.

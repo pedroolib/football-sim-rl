@@ -206,15 +206,21 @@ class ModelMenu:
 
     @classmethod
     def discover(cls, runs_dir: str | Path = "runs") -> "ModelMenu":
-        """Build the role options from the run directories on disk."""
+        """Build the role options from the run directories on disk.
+
+        Runs live under ``runs/<position>/...``; ``history`` and ``pilots``
+        folders are skipped so the menu only offers production models.
+        """
         options = {role: [ModelOption("reglas", None)] for role in cls.ROLES}
         root = Path(runs_dir)
         if not root.is_dir():
             return cls(options)
-        for run in sorted(root.iterdir()):
-            metadata_path = run / "config.json"
+        for metadata_path in sorted(root.rglob("config.json")):
+            run = metadata_path.parent
+            if any(part in ("history", "pilots", "reports") for part in run.parts):
+                continue
             model_path = run / "final_model.zip"
-            if not metadata_path.is_file() or not model_path.is_file():
+            if not model_path.is_file():
                 continue
             try:
                 metadata = json.loads(metadata_path.read_text(encoding="utf-8"))

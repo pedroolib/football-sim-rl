@@ -2,8 +2,8 @@
 
 Example:
 
-    python scripts/analyze_ppo.py --model runs/ppo_default/final_model.zip \
-        --episodes 100 --output runs/analysis.json
+    python scripts/analyze_ppo.py --model runs/qb/play/baseline_v10/final_model.zip \
+        --episodes 100 --output runs/reports/analysis.json
 """
 
 import argparse
@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=DEFAULT_EPISODES)
     parser.add_argument("--seed-start", type=int, default=DEFAULT_SEED_START)
     parser.add_argument("--scenario", default="default")
-    parser.add_argument("--output", default="runs/analysis.json")
+    parser.add_argument("--output", default="runs/reports/analysis.json")
     args = parser.parse_args()
 
     scenario = get_scenario(args.scenario)
