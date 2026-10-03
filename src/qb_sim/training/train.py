@@ -331,6 +331,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--run-name", default=defaults.run_name)
     parser.add_argument("--output-dir", default=defaults.output_dir)
+    parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
     parser.add_argument("--checkpoint-freq", type=int, default=defaults.checkpoint_freq)
     parser.add_argument("--eval-freq", type=int, default=defaults.eval_freq)
     parser.add_argument("--eval-episodes", type=int, default=defaults.eval_episodes)
@@ -367,6 +368,7 @@ def main(argv: list[str] | None = None) -> None:
         scenarios=scenarios,
         total_timesteps=args.timesteps,
         seed=args.seed,
+        learning_rate=args.learning_rate,
         n_envs=args.n_envs,
         checkpoint_freq=args.checkpoint_freq,
         eval_freq=args.eval_freq,
