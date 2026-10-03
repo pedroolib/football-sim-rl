@@ -25,9 +25,15 @@ BALL_COLOR = (150, 75, 35)
 SHADOW_COLOR = (22, 72, 40)
 SCRIMMAGE_COLOR = (255, 235, 120)
 FIRST_DOWN_COLOR = (90, 160, 255)
-PLAYER_RADIUS = 8
+PLAYER_RADIUS_YARDS = 0.5
+MIN_PLAYER_RADIUS = 3
 BALL_RADIUS = 4
 END_ZONE_YARDS = 10.0
+
+
+def player_radius(view: ViewTransform) -> int:
+    """Player draw radius in pixels, matched to yards for contact legibility."""
+    return max(MIN_PLAYER_RADIUS, int(round(PLAYER_RADIUS_YARDS * view.scale)))
 
 
 def _screen_int(view: ViewTransform, point: Vector2) -> tuple[int, int]:
@@ -142,18 +148,19 @@ def draw_players(
     highlight_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Draw every player as a circle colored by role; rushers and learners stand out."""
+    radius = player_radius(view)
     for player in state.players:
         if player.player_id in rusher_ids:
             color = RUSHER_COLOR
         else:
             color = PLAYER_COLORS.get(player.role, (200, 200, 200))
-        pygame.draw.circle(surface, color, _screen_int(view, player.position), PLAYER_RADIUS)
+        pygame.draw.circle(surface, color, _screen_int(view, player.position), radius)
         if player.player_id in rusher_ids:
             pygame.draw.circle(
                 surface,
                 (120, 60, 10),
                 _screen_int(view, player.position),
-                PLAYER_RADIUS,
+                radius,
                 2,
             )
         if player.player_id in highlight_ids:
@@ -161,7 +168,7 @@ def draw_players(
                 surface,
                 (255, 255, 255),
                 _screen_int(view, player.position),
-                PLAYER_RADIUS + 4,
+                radius + max(2, radius // 3),
                 2,
             )
 
@@ -215,7 +222,7 @@ def draw_ball(surface: pygame.Surface, state: PlayState, view: ViewTransform) ->
         BallStatus.HELD,
         BallStatus.CARRIED,
     ):
-        ball_screen = vec2(ball_screen[0] + PLAYER_RADIUS, ball_screen[1] - 2)
+        ball_screen = vec2(ball_screen[0] + player_radius(view), ball_screen[1] - 2)
     else:
         pygame.draw.circle(
             surface,
