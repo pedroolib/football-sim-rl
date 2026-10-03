@@ -46,6 +46,15 @@ DEFAULT_RELOAD_SECONDS = 5.0
 _SPEED_KEYS = {pygame.K_1: 1, pygame.K_2: 2, pygame.K_3: 4}
 _PREVIOUS_KEYS = (pygame.K_LEFT, pygame.K_LEFTBRACKET)
 _NEXT_KEYS = (pygame.K_RIGHT, pygame.K_RIGHTBRACKET)
+_MENU_KEYS = (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT)
+MENU_REPEAT_DELAY = 0.35
+MENU_REPEAT_INTERVAL = 0.06
+MENU_ACCENT = (86, 168, 255)
+MENU_TEXT = (232, 238, 245)
+MENU_MUTED = (140, 152, 165)
+MENU_SELECTED = (28, 64, 108)
+MENU_CARD = (16, 22, 30)
+MENU_ROW = (22, 29, 39)
 ENV_KINDS = ("passing", "drive", "role_play", "role_drive", "composition")
 LearnerPolicy = (
     QuarterbackPolicy
@@ -98,6 +107,7 @@ class TrainingDashboard:
         self._live = True
         self._opponents = dict(opponent_policies or {})
         self._menu_mode: str | None = None
+        self._repeat_timers: dict[int, float] = {}
         self._parameter_menu: ParameterMenu | None = parameter_menu
         self._model_menu: ModelMenu | None = model_menu
         self._composition_policies: dict = {}
@@ -370,6 +380,7 @@ class TrainingDashboard:
 
     def step_frames(self, real_seconds: float) -> None:
         """Advance the demo panels at a fixed timestep, scaled by speed."""
+        self._update_menu_repeat(real_seconds)
         if self.paused:
             return
         self._accumulator += real_seconds * self.speed
@@ -383,22 +394,22 @@ class TrainingDashboard:
         for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
+            elif event.type == pygame.KEYUP:
+                self._repeat_timers.pop(event.key, None)
             elif event.type == pygame.KEYDOWN:
                 if self._menu_mode is not None:
                     if event.key == pygame.K_ESCAPE:
                         self._menu_mode = None
+                        self._repeat_timers.clear()
                     elif event.key == pygame.K_m and self.env_kind == "composition":
                         self._menu_mode = "params"
+                        self._repeat_timers.clear()
                     elif event.key == pygame.K_n and self.env_kind == "composition":
                         self._menu_mode = "models"
-                    elif event.key == pygame.K_UP:
-                        self._move_menu_selection(-1)
-                    elif event.key == pygame.K_DOWN:
-                        self._move_menu_selection(1)
-                    elif event.key == pygame.K_LEFT:
-                        self._adjust_menu(-1)
-                    elif event.key == pygame.K_RIGHT:
-                        self._adjust_menu(1)
+                        self._repeat_timers.clear()
+                    elif event.key in _MENU_KEYS:
+                        self._apply_menu_key(event.key)
+                        self._repeat_timers[event.key] = -MENU_REPEAT_DELAY
                     continue
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
@@ -420,6 +431,27 @@ class TrainingDashboard:
                     for index, panel in enumerate(self._panels):
                         panel.restart(seed=1000 + index)
 
+    def _apply_menu_key(self, key: int) -> None:
+        if key == pygame.K_UP:
+            self._move_menu_selection(-1)
+        elif key == pygame.K_DOWN:
+            self._move_menu_selection(1)
+        elif key == pygame.K_LEFT:
+            self._adjust_menu(-1)
+        elif key == pygame.K_RIGHT:
+            self._adjust_menu(1)
+
+    def _update_menu_repeat(self, real_seconds: float) -> None:
+        if self._menu_mode is None:
+            self._repeat_timers.clear()
+            return
+        for key, timer in list(self._repeat_timers.items()):
+            timer += real_seconds
+            while timer >= 0.0:
+                self._apply_menu_key(key)
+                timer -= MENU_REPEAT_INTERVAL
+            self._repeat_timers[key] = timer
+
     def _move_menu_selection(self, direction: int) -> None:
         if self._menu_mode == "params" and self._parameter_menu is not None:
             self._parameter_menu.move(direction)
@@ -435,39 +467,124 @@ class TrainingDashboard:
             self._reload_composition()
 
     def _draw_menu(self) -> None:
-        row_height = 24
-        visible_rows = 14
+        rows: list[tuple[str, str, float | None, tuple[float, float] | None]] = []
         if self._menu_mode == "params" and self._parameter_menu is not None:
-            title = "PARÁMETROS  ↑/↓ elegir · ←/→ ajustar · M/Esc cerrar"
-            lines = [
-                self._parameter_menu.label(index)
-                for index in range(len(self._parameter_menu.entries))
-            ]
+            title = "PARÁMETROS"
+            for entry in self._parameter_menu.entries:
+                value_text = (
+                    str(entry.value)
+                    if isinstance(entry.value, int)
+                    else f"{entry.value:.2f}"
+                )
+                bounds = (
+                    (float(entry.minimum), float(entry.maximum))
+                    if entry.minimum is not None and entry.maximum is not None
+                    else None
+                )
+                rows.append((entry.name, value_text, float(entry.value), bounds))
             selected = self._parameter_menu.index
         elif self._model_menu is not None:
-            title = "MODELOS  ↑/↓ rol · ←/→ modelo · N/Esc cerrar"
-            roles = list(self._model_menu.options)
-            lines = [
-                f"{role}: {self._model_menu.current(role).label}" for role in roles
-            ]
+            title = "MODELOS"
+            for role in self._model_menu.options:
+                label = self._model_menu.current(role).label
+                rows.append((role, label if len(label) <= 26 else label[:24] + "…", None, None))
             selected = self._model_menu.index
         else:
             return
-        start = max(0, min(selected - visible_rows // 2, max(0, len(lines) - visible_rows)))
-        window = lines[start : start + visible_rows]
-        height = (len(window) + 2) * row_height + 16
-        rect = pygame.Rect(40, 40, 660, height)
-        overlay = pygame.Surface(rect.size, pygame.SRCALPHA)
-        overlay.fill((10, 14, 18, 235))
-        self.screen.blit(overlay, rect.topleft)
-        pygame.draw.rect(self.screen, (90, 150, 220), rect, 2)
-        title_image = self.font.render(title, True, (255, 235, 150))
-        self.screen.blit(title_image, (rect.x + 12, rect.y + 8))
-        for row, line in enumerate(window):
+
+        dim = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        dim.fill((4, 8, 12, 150))
+        self.screen.blit(dim, (0, 0))
+
+        row_height = 30
+        visible_rows = 14
+        start = max(0, min(selected - visible_rows // 2, max(0, len(rows) - visible_rows)))
+        window = rows[start : start + visible_rows]
+        card_width = 780
+        card_height = (len(window) + 2) * row_height + 30
+        card = pygame.Rect(
+            (self.screen.get_width() - card_width) // 2,
+            (self.screen.get_height() - card_height) // 2,
+            card_width,
+            card_height,
+        )
+        shadow = pygame.Surface((card.width, card.height), pygame.SRCALPHA)
+        shadow.fill((0, 0, 0, 110))
+        self.screen.blit(shadow, (card.x + 6, card.y + 8))
+        pygame.draw.rect(self.screen, MENU_CARD, card, border_radius=18)
+        pygame.draw.rect(self.screen, MENU_ACCENT, card, 2, border_radius=18)
+
+        title_image = self.font.render(title, True, MENU_TEXT)
+        self.screen.blit(title_image, (card.x + 24, card.y + 16))
+        hint = "Arriba/Abajo mover · Izq/Der ajustar (mantener) · M/N cambiar · Esc cerrar"
+        hint_image = self.font.render(hint, True, MENU_MUTED)
+        self.screen.blit(
+            hint_image,
+            (card.right - hint_image.get_width() - 24, card.y + 18),
+        )
+        pygame.draw.line(
+            self.screen,
+            (40, 52, 68),
+            (card.x + 20, card.y + 46),
+            (card.right - 20, card.y + 46),
+            1,
+        )
+
+        for row, (name, value_text, numeric, bounds) in enumerate(window):
             index = start + row
-            color = (255, 255, 255) if index == selected else (200, 205, 210)
-            image = self.font.render(line, True, color)
-            self.screen.blit(image, (rect.x + 24, rect.y + 34 + row * row_height))
+            row_rect = pygame.Rect(
+                card.x + 14,
+                card.y + 56 + row * row_height,
+                card.width - 28,
+                row_height - 4,
+            )
+            if index == selected:
+                pygame.draw.rect(self.screen, MENU_SELECTED, row_rect, border_radius=9)
+            elif row % 2 == 1:
+                pygame.draw.rect(self.screen, MENU_ROW, row_rect, border_radius=9)
+            name_image = self.font.render(
+                name,
+                True,
+                MENU_TEXT if index == selected else MENU_MUTED,
+            )
+            self.screen.blit(name_image, (row_rect.x + 16, row_rect.y + 6))
+            value_color = MENU_ACCENT if index == selected else MENU_TEXT
+            value_image = self.font.render(value_text, True, value_color)
+            if bounds is not None and bounds[1] > bounds[0] and numeric is not None:
+                track = pygame.Rect(row_rect.x + 360, row_rect.centery - 3, 210, 6)
+                pygame.draw.rect(self.screen, (44, 54, 68), track, border_radius=3)
+                fraction = (numeric - bounds[0]) / (bounds[1] - bounds[0])
+                fraction = max(0.0, min(1.0, fraction))
+                fill = pygame.Rect(
+                    track.x,
+                    track.y,
+                    int(track.width * fraction),
+                    track.height,
+                )
+                pygame.draw.rect(self.screen, MENU_ACCENT, fill, border_radius=3)
+                pygame.draw.circle(
+                    self.screen,
+                    MENU_TEXT,
+                    (track.x + int(track.width * fraction), track.centery),
+                    6,
+                )
+                value_x = track.right + 22
+            else:
+                value_x = row_rect.right - value_image.get_width() - 22
+            self.screen.blit(value_image, (value_x, row_rect.y + 6))
+
+        if len(rows) > visible_rows:
+            track = pygame.Rect(card.right - 12, card.y + 56, 4, len(window) * row_height)
+            pygame.draw.rect(self.screen, (44, 54, 68), track, border_radius=2)
+            thumb_height = max(24, int(track.height * visible_rows / len(rows)))
+            span = max(1, len(rows) - visible_rows)
+            thumb_y = track.y + int((track.height - thumb_height) * start / span)
+            pygame.draw.rect(
+                self.screen,
+                MENU_ACCENT,
+                pygame.Rect(track.x, thumb_y, track.width, thumb_height),
+                border_radius=2,
+            )
 
     def run(self) -> None:
         """Run the dashboard until the window closes."""
@@ -652,7 +769,7 @@ class TrainingDashboard:
             completed = sum(panel.completed for panel in self._panels)
             completion = 100.0 * completed / finished if finished else 0.0
             lines.append(f"completados: {completion:0.1f}%  ({finished} jugadas)")
-        controls = "←/→ checkpoint | L vivo | P pausa | 1/2/3 | R | Esc"
+        controls = "Izq/Der checkpoint | L vivo | P pausa | 1/2/3 | R | Esc"
         if self.env_kind == "composition":
             controls = "M parámetros | N modelos | P pausa | 1/2/3 | R | Esc"
         lines.extend(("", controls))

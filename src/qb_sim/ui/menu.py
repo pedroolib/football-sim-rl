@@ -30,6 +30,24 @@ def _step_for(name: str, value: float | int) -> float:
     return 0.05
 
 
+def _bounds_for(name: str, value: float | int) -> tuple[float | None, float | None]:
+    if name == "dt":
+        return (0.005, 0.2)
+    if name.endswith("_degrees"):
+        return (0.0, 90.0)
+    if name.endswith("_ratio"):
+        return (0.0, 1.0)
+    if "speed" in name:
+        return (0.5, 12.0)
+    if "seconds" in name:
+        return (0.1, 30.0)
+    if "radius" in name or "height" in name or "yards" in name:
+        return (0.0, 60.0)
+    if name.startswith("carrier_") or name.endswith("_sigma"):
+        return (0.0, 1.0)
+    return (None, None)
+
+
 @dataclass(slots=True)
 class ParameterEntry:
     """One editable simulation parameter."""
@@ -60,8 +78,15 @@ class ParameterMenu:
             value = getattr(self._config, item.name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 continue
+            minimum, maximum = _bounds_for(item.name, value)
             entries.append(
-                ParameterEntry(item.name, value, _step_for(item.name, value))
+                ParameterEntry(
+                    item.name,
+                    value,
+                    _step_for(item.name, value),
+                    minimum,
+                    maximum,
+                )
             )
         for name in _DRIVE_SCALARS:
             value = getattr(self._drive, name)

@@ -263,6 +263,38 @@ def test_dashboard_composition_ignores_checkpoint_keys(dummy_video, tmp_path) ->
         dashboard.close()
 
 
+def test_dashboard_menu_repeats_while_the_key_is_held(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m)])
+        index = next(
+            i for i, entry in enumerate(parameters.entries) if entry.name == "receiver_speed"
+        )
+        parameters.index = index
+        before = parameters.sim_config().receiver_speed
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)])
+        for _ in range(30):
+            dashboard.step_frames(0.05)
+        held = parameters.sim_config().receiver_speed
+        assert held - before >= 0.5
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYUP, key=pygame.K_RIGHT)])
+        for _ in range(10):
+            dashboard.step_frames(0.05)
+        assert parameters.sim_config().receiver_speed == held
+    finally:
+        dashboard.close()
+
+
 def test_dashboard_role_play_mode_runs_plays(dummy_video, tmp_path) -> None:
     dashboard = TrainingDashboard(
         tmp_path,

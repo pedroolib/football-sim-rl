@@ -1,7 +1,9 @@
 """Read-only drawing of simulation state with Pygame."""
 
 from collections.abc import Mapping
+from math import atan2, degrees
 
+import numpy as np
 import pygame
 
 from qb_sim.engine.entities import BallStatus, PlayState, Role
@@ -21,7 +23,9 @@ PLAYER_COLORS = {
     Role.DEFENDER: (225, 80, 80),
 }
 RUSHER_COLOR = (255, 145, 40)
-BALL_COLOR = (150, 75, 35)
+FOOTBALL_COLOR = (122, 62, 36)
+FOOTBALL_LACE_COLOR = (242, 242, 242)
+FOOTBALL_OUTLINE_COLOR = (58, 30, 16)
 SHADOW_COLOR = (22, 72, 40)
 SCRIMMAGE_COLOR = (255, 235, 120)
 FIRST_DOWN_COLOR = (90, 160, 255)
@@ -215,8 +219,45 @@ def draw_ball_guide(surface: pygame.Surface, state: PlayState, view: ViewTransfo
     )
 
 
+def _ball_velocity(state: PlayState) -> Vector2:
+    velocity = state.ball.velocity
+    if float(np.linalg.norm(velocity)) >= 1e-6:
+        return velocity
+    if state.carrier_id is not None:
+        return state.player(state.carrier_id).velocity
+    if state.ball.status is BallStatus.HELD:
+        return state.player("qb").velocity
+    return velocity
+
+
+def _football_sprite(length: int, width: int) -> pygame.Surface:
+    sprite = pygame.Surface((length, width), pygame.SRCALPHA)
+    rect = pygame.Rect(0, 0, length, width)
+    pygame.draw.ellipse(sprite, FOOTBALL_COLOR, rect)
+    pygame.draw.ellipse(sprite, FOOTBALL_OUTLINE_COLOR, rect, 1)
+    center_x, center_y = length // 2, width // 2
+    lace_half = max(2, length // 6)
+    pygame.draw.line(
+        sprite,
+        FOOTBALL_LACE_COLOR,
+        (center_x - lace_half, center_y),
+        (center_x + lace_half, center_y),
+        1,
+    )
+    step = max(2, lace_half // 2)
+    for offset in range(-lace_half + 1, lace_half, step):
+        pygame.draw.line(
+            sprite,
+            FOOTBALL_LACE_COLOR,
+            (center_x + offset, center_y - max(1, width // 4)),
+            (center_x + offset, center_y + max(1, width // 4)),
+            1,
+        )
+    return sprite
+
+
 def draw_ball(surface: pygame.Surface, state: PlayState, view: ViewTransform) -> None:
-    """Draw the football, offset when held, with a shadow when airborne."""
+    """Draw the football as a rotating sprite with laces and an airborne shadow."""
     ball_screen = _ball_screen(state, view)
     if state.ball.height <= 0.0 and state.ball.status in (
         BallStatus.HELD,
@@ -230,7 +271,15 @@ def draw_ball(surface: pygame.Surface, state: PlayState, view: ViewTransform) ->
             _screen_int(view, state.ball.position),
             BALL_RADIUS,
         )
-    pygame.draw.circle(surface, BALL_COLOR, _pixel(ball_screen), BALL_RADIUS)
+    length = max(12, int(round(1.8 * view.scale)))
+    width = max(7, int(round(length * 0.62)))
+    velocity = _ball_velocity(state)
+    if float(np.linalg.norm(velocity)) < 1e-6:
+        angle = 0.0
+    else:
+        angle = -degrees(atan2(float(velocity[1]), float(velocity[0])))
+    sprite = pygame.transform.rotate(_football_sprite(length, width), angle)
+    surface.blit(sprite, sprite.get_rect(center=_pixel(ball_screen)))
 
 
 def draw_hud(
