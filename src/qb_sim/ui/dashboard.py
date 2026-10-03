@@ -28,6 +28,7 @@ from qb_sim.training.monitoring import (
     rule_quarterback_policy,
     total_timesteps,
 )
+from qb_sim.ui import theme
 from qb_sim.ui.menu import ModelMenu, ParameterMenu
 from qb_sim.ui.rendering import (
     draw_ball,
@@ -49,12 +50,13 @@ _NEXT_KEYS = (pygame.K_RIGHT, pygame.K_RIGHTBRACKET)
 _MENU_KEYS = (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT)
 MENU_REPEAT_DELAY = 0.35
 MENU_REPEAT_INTERVAL = 0.06
-MENU_ACCENT = (86, 168, 255)
-MENU_TEXT = (232, 238, 245)
-MENU_MUTED = (140, 152, 165)
-MENU_SELECTED = (28, 64, 108)
-MENU_CARD = (16, 22, 30)
-MENU_ROW = (22, 29, 39)
+MENU_ACCENT = theme.PRIMARY_SOFT
+MENU_TEXT = theme.TEXT
+MENU_MUTED = theme.TEXT_MUTED
+MENU_SELECTED = (30, 58, 100)
+MENU_CARD = theme.SURFACE
+MENU_ROW = theme.SURFACE_ALT
+HEADER_HEIGHT = 46
 CAMERA_FOLLOW_RATE = 4.0
 ENV_KINDS = ("passing", "drive", "role_play", "role_drive", "composition")
 LearnerPolicy = (
@@ -95,7 +97,8 @@ class TrainingDashboard:
         self.screen = pygame.display.set_mode(screen_size)
         pygame.display.set_caption(f"QB Lab — {self.run_dir.name}")
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.Font(None, 22)
+        self.font_sans, self.font_mono, self.font_small = theme.load_fonts()
+        self.font = self.font_sans
         self.reload_seconds = reload_seconds
         self._policy_factory = policy_factory or self._default_policy_factory
         self.running = True
@@ -185,7 +188,7 @@ class TrainingDashboard:
                 )
                 for index in range(panels)
             ]
-        self._grid = self._compute_grid(panels, screen_size)
+        self._grid = self._compute_grid(panels, screen_size, header_height=HEADER_HEIGHT)
         field = self.scenario.config.field
         self._cameras: list[tuple[float, float]] = [
             (field.length_yards / 2.0, field.width_yards / 2.0) for _ in range(panels)
@@ -591,7 +594,7 @@ class TrainingDashboard:
             )
             self.screen.blit(name_image, (row_rect.x + 16, row_rect.y + 6))
             value_color = MENU_ACCENT if index == selected else MENU_TEXT
-            value_image = self.font.render(value_text, True, value_color)
+            value_image = self.font_mono.render(value_text, True, value_color)
             if bounds is not None and bounds[1] > bounds[0] and numeric is not None:
                 track = pygame.Rect(row_rect.x + 360, row_rect.centery - 3, 210, 6)
                 pygame.draw.rect(self.screen, (44, 54, 68), track, border_radius=3)
@@ -646,30 +649,65 @@ class TrainingDashboard:
         pygame.quit()
 
     @staticmethod
-    def _compute_grid(panels: int, screen_size: tuple[int, int]) -> list[pygame.Rect]:
+    def _compute_grid(
+        panels: int,
+        screen_size: tuple[int, int],
+        header_height: int = 0,
+    ) -> list[pygame.Rect]:
         columns = min(GRID_COLUMNS, panels) if panels > 0 else 1
         rows = (panels + columns - 1) // columns
         area_width = screen_size[0] - METRICS_WIDTH
         cell_width = area_width // columns
-        cell_height = screen_size[1] // rows
+        cell_height = (screen_size[1] - header_height) // rows
         rects: list[pygame.Rect] = []
         for index in range(panels):
             row, column = divmod(index, columns)
             rects.append(
-                pygame.Rect(column * cell_width, row * cell_height, cell_width, cell_height)
+                pygame.Rect(
+                    column * cell_width,
+                    header_height + row * cell_height,
+                    cell_width,
+                    cell_height,
+                )
             )
         return rects
 
     def draw_frame(self) -> None:
-        """Render every panel and the metrics column."""
-        self.screen.fill((24, 28, 32))
+        """Render the header, every panel, and the metrics column."""
+        self.screen.fill(theme.BACKGROUND)
+        self._draw_header()
         for index, (rect, panel) in enumerate(zip(self._grid, self._panels, strict=True)):
             self._draw_panel(rect, panel, index)
-            pygame.draw.rect(self.screen, (60, 66, 72), rect, 1)
         self._draw_metrics()
         if self._menu_mode is not None:
             self._draw_menu()
         pygame.display.flip()
+
+    def _draw_header(self) -> None:
+        bar = pygame.Rect(0, 0, self.screen.get_width(), HEADER_HEIGHT)
+        pygame.draw.rect(self.screen, theme.SURFACE, bar)
+        pygame.draw.line(
+            self.screen,
+            theme.BORDER,
+            (0, HEADER_HEIGHT - 1),
+            (bar.right, HEADER_HEIGHT - 1),
+        )
+        brand = self.font_sans.render("QB LAB", True, theme.ACCENT)
+        self.screen.blit(brand, (theme.SPACE_LG, 13))
+        run = self.font_sans.render(self.run_dir.name, True, theme.TEXT)
+        self.screen.blit(run, (theme.SPACE_LG + brand.get_width() + 14, 13))
+        chip_image = self.font_sans.render(self.mode_label(), True, theme.TEXT)
+        chip = pygame.Rect(
+            bar.right - chip_image.get_width() - 36,
+            10,
+            chip_image.get_width() + 20,
+            26,
+        )
+        pygame.draw.rect(self.screen, theme.SURFACE_ALT, chip, border_radius=theme.RADIUS_SM)
+        pygame.draw.rect(self.screen, theme.BORDER, chip, 1, border_radius=theme.RADIUS_SM)
+        self.screen.blit(chip_image, (chip.x + 10, chip.y + 4))
+        status = self.font_mono.render(self.checkpoint_status(), True, theme.TEXT_MUTED)
+        self.screen.blit(status, (chip.x - status.get_width() - 16, 14))
 
     def _draw_panel(
         self,
@@ -677,14 +715,18 @@ class TrainingDashboard:
         panel: DemoPanel | DriveDemoPanel,
         index: int,
     ) -> None:
-        margin = 8
-        title_height = 26
-        content_height = rect.height
-        surface = pygame.Surface((rect.width, content_height))
-        field_surface = surface.subsurface(
-            pygame.Rect(0, title_height, rect.width, content_height - title_height)
+        margin = theme.SPACE_SM
+        header_height = 30
+        pygame.draw.rect(self.screen, theme.SURFACE, rect, border_radius=theme.RADIUS_LG)
+        pygame.draw.rect(self.screen, theme.BORDER, rect, 1, border_radius=theme.RADIUS_LG)
+        field_rect = pygame.Rect(
+            rect.x + margin,
+            rect.y + header_height,
+            rect.width - 2 * margin,
+            rect.height - header_height - margin,
         )
-        view = self._panel_view(rect, content_height - title_height, index, margin)
+        field_surface = self.screen.subsurface(field_rect)
+        view = self._panel_view(field_rect, field_rect.height, index, margin=0)
         state = panel.play.state
         goal_line = 100.0
         if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel, CompositionDemoPanel)):
@@ -711,136 +753,204 @@ class TrainingDashboard:
         if isinstance(panel, CompositionDemoPanel):
             label = panel.last_outcome or panel.down_label
             percentage = 100.0 * panel.touchdowns / panel.drives if panel.drives else 0.0
-            title = self.font.render(
-                f"{label}  TD {percentage:0.0f}%",
-                True,
-                (240, 240, 240),
-            )
+            stat = f"TD {percentage:0.0f}%"
         elif isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel)):
             label = panel.last_outcome or panel.down_label
-            title = self.font.render(
-                f"{label}  TD {panel.touchdown_pct:0.0f}%",
-                True,
-                (240, 240, 240),
-            )
+            stat = f"TD {panel.touchdown_pct:0.0f}%"
         elif isinstance(panel, RolePlayDemoPanel):
             label = panel.last_outcome or "in_progress"
-            title = self.font.render(
-                f"{label}  {panel.catch_pct:0.0f}%",
-                True,
-                (240, 240, 240),
-            )
+            stat = f"{panel.catch_pct:0.0f}%"
         else:
             label = panel.last_outcome or "in_progress"
-            title = self.font.render(
-                f"{label}  {panel.completion_pct:0.0f}%",
-                True,
-                (240, 240, 240),
-            )
-        surface.blit(title, (10, 4))
-        self.screen.blit(surface, (rect.x, rect.y + (rect.height - content_height) // 2))
+            stat = f"{panel.completion_pct:0.0f}%"
+        label_image = self.font_sans.render(label.replace("_", " "), True, theme.TEXT)
+        stat_image = self.font_mono.render(stat, True, theme.ACCENT)
+        self.screen.blit(label_image, (rect.x + margin, rect.y + 7))
+        self.screen.blit(
+            stat_image,
+            (rect.right - margin - stat_image.get_width(), rect.y + 7),
+        )
+
+    def _metric_rows(self) -> list[tuple[str, str]]:
+        if self.env_kind in ("composition", "drive"):
+            drives = sum(panel.drives for panel in self._panels)
+            touchdowns = sum(panel.touchdowns for panel in self._panels)
+            points = sum(panel.points for panel in self._panels)
+            first_downs = sum(panel.first_downs for panel in self._panels)
+            return [
+                ("drives", str(drives)),
+                (
+                    "TD",
+                    f"{touchdowns} "
+                    f"({100.0 * touchdowns / drives if drives else 0.0:0.0f}%)",
+                ),
+                ("puntos/drive", f"{points / drives if drives else 0.0:0.3f}"),
+                (
+                    "1er downs/drive",
+                    f"{first_downs / drives if drives else 0.0:0.2f}",
+                ),
+            ]
+        if self.env_kind == "role_play":
+            plays = sum(panel.plays for panel in self._panels)
+            catches = sum(panel.catches for panel in self._panels)
+            yards = sum(panel.yards for panel in self._panels)
+            return [
+                ("jugadas", str(plays)),
+                (
+                    "atrapadas",
+                    f"{catches} ({100.0 * catches / plays if plays else 0.0:0.0f}%)",
+                ),
+                ("yardas/atrapada", f"{yards / catches if catches else 0.0:0.2f}"),
+            ]
+        if self.env_kind == "role_drive":
+            drives = sum(panel.drives for panel in self._panels)
+            allowed = sum(panel.touchdowns_allowed for panel in self._panels)
+            sacks = sum(panel.sacks for panel in self._panels)
+            return [
+                ("drives", str(drives)),
+                (
+                    "TD permitidos",
+                    f"{allowed} ({100.0 * allowed / drives if drives else 0.0:0.0f}%)",
+                ),
+                ("sacks", str(sacks)),
+            ]
+        finished = sum(panel.finished for panel in self._panels)
+        completed = sum(panel.completed for panel in self._panels)
+        completion = 100.0 * completed / finished if finished else 0.0
+        return [
+            ("jugadas", str(finished)),
+            ("completados", f"{completion:0.1f}%"),
+        ]
+
+    def _controls_hint(self) -> str:
+        if self.env_kind == "composition":
+            return "M params · N modelos · P pausa · 1/2/3 · R · Esc"
+        return "Izq/Der checkpoint · L vivo · P pausa · R · Esc"
 
     def _draw_metrics(self) -> None:
         rect = pygame.Rect(
             self.screen.get_width() - METRICS_WIDTH,
-            0,
+            HEADER_HEIGHT,
             METRICS_WIDTH,
-            self.screen.get_height(),
+            self.screen.get_height() - HEADER_HEIGHT,
         )
-        pygame.draw.rect(self.screen, (18, 22, 26), rect)
+        pygame.draw.rect(self.screen, theme.BACKGROUND, rect)
+        pygame.draw.line(
+            self.screen,
+            theme.BORDER,
+            (rect.x, rect.y),
+            (rect.x, rect.bottom),
+        )
         progress = read_progress(self.run_dir)
         timesteps = progress[-1][0] if progress else 0
         reward = progress[-1][1] if progress else 0.0
-        lines = [
-            f"run: {self.run_dir.name}",
-            f"modo: {self.mode_label()}",
-            f"timesteps: {timesteps:,}",
-            f"ep_rew_mean: {reward:0.3f}",
-            self.checkpoint_status(),
-        ]
-        if self.env_kind == "composition":
-            drives = sum(panel.drives for panel in self._panels)
-            touchdowns = sum(panel.touchdowns for panel in self._panels)
-            points = sum(panel.points for panel in self._panels)
-            first_downs = sum(panel.first_downs for panel in self._panels)
-            lines.extend(
-                (
-                    f"drives: {drives}",
-                    f"TD: {touchdowns} "
-                    f"({100.0 * touchdowns / drives if drives else 0.0:0.0f}%)",
-                    f"puntos/drive: {points / drives if drives else 0.0:0.3f}",
-                    f"1er downs/drive: {first_downs / drives if drives else 0.0:0.2f}",
-                )
+        x = rect.x + theme.SPACE_LG
+        width = rect.width - 2 * theme.SPACE_LG
+        y = rect.y + theme.SPACE_LG
+        y = self._draw_section(
+            x,
+            y,
+            width,
+            "RUN",
+            (
+                ("run", self.run_dir.name),
+                ("modo", self.mode_label()),
+                ("timesteps", f"{timesteps:,}"),
+                ("reward", f"{reward:0.3f}"),
+            ),
+        )
+        y = self._draw_section(x, y, width, "RENDIMIENTO", self._metric_rows())
+        chart_height = max(120, rect.bottom - y - 64)
+        self._draw_curve(rect, progress, top=y, height=chart_height)
+        hint = self.font_small.render(self._controls_hint(), True, theme.TEXT_MUTED)
+        self.screen.blit(hint, (x, rect.bottom - 26))
+
+    def _draw_section(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        title: str,
+        rows: tuple[tuple[str, str], ...] | list[tuple[str, str]],
+    ) -> int:
+        card = pygame.Rect(x, y, width, 32 + len(rows) * 24 + 10)
+        pygame.draw.rect(self.screen, theme.SURFACE, card, border_radius=theme.RADIUS_MD)
+        pygame.draw.rect(self.screen, theme.BORDER, card, 1, border_radius=theme.RADIUS_MD)
+        title_image = self.font_small.render(title, True, theme.TEXT_MUTED)
+        self.screen.blit(title_image, (card.x + 12, card.y + 8))
+        row_y = card.y + 28
+        for label, value in rows:
+            label_image = self.font_small.render(label, True, theme.TEXT_MUTED)
+            value_image = self.font_mono.render(value, True, theme.TEXT)
+            self.screen.blit(label_image, (card.x + 12, row_y))
+            self.screen.blit(
+                value_image,
+                (card.right - 12 - value_image.get_width(), row_y),
             )
-        elif self.env_kind == "drive":
-            drives = sum(panel.drives for panel in self._panels)
-            touchdowns = sum(panel.touchdowns for panel in self._panels)
-            points = sum(panel.points for panel in self._panels)
-            first_downs = sum(panel.first_downs for panel in self._panels)
-            lines.extend(
-                (
-                    f"drives: {drives}",
-                    f"touchdowns: {touchdowns} "
-                    f"({100.0 * touchdowns / drives if drives else 0.0:0.0f}%)",
-                    f"puntos/drive: {points / drives if drives else 0.0:0.3f}",
-                    f"1er downs/drive: {first_downs / drives if drives else 0.0:0.2f}",
-                )
-            )
-        elif self.env_kind == "role_play":
-            plays = sum(panel.plays for panel in self._panels)
-            catches = sum(panel.catches for panel in self._panels)
-            yards = sum(panel.yards for panel in self._panels)
-            lines.extend(
-                (
-                    f"jugadas: {plays}",
-                    f"atrapadas: {catches} "
-                    f"({100.0 * catches / plays if plays else 0.0:0.0f}%)",
-                    f"yardas/atrapada: {yards / catches if catches else 0.0:0.2f}",
-                )
-            )
-        elif self.env_kind == "role_drive":
-            drives = sum(panel.drives for panel in self._panels)
-            allowed = sum(panel.touchdowns_allowed for panel in self._panels)
-            sacks = sum(panel.sacks for panel in self._panels)
-            lines.extend(
-                (
-                    f"drives: {drives}",
-                    f"TD permitidos: {allowed} "
-                    f"({100.0 * allowed / drives if drives else 0.0:0.0f}%)",
-                    f"sacks: {sacks}",
-                )
-            )
-        else:
-            finished = sum(panel.finished for panel in self._panels)
-            completed = sum(panel.completed for panel in self._panels)
-            completion = 100.0 * completed / finished if finished else 0.0
-            lines.append(f"completados: {completion:0.1f}%  ({finished} jugadas)")
-        controls = "Izq/Der checkpoint | L vivo | P pausa | 1/2/3 | R | Esc"
-        if self.env_kind == "composition":
-            controls = "M parámetros | N modelos | P pausa | 1/2/3 | R | Esc"
-        lines.extend(("", controls))
-        for index, line in enumerate(lines):
-            image = self.font.render(line, True, (228, 232, 236))
-            self.screen.blit(image, (rect.x + 14, 14 + index * 24))
-        self._draw_curve(rect, progress, top=14 + len(lines) * 24 + 8)
+            row_y += 24
+        return card.bottom + theme.SPACE_MD
 
     def _draw_curve(
         self,
         rect: pygame.Rect,
         progress: list[tuple[int, float]],
         top: int = 182,
+        height: int = 220,
     ) -> None:
-        chart = pygame.Rect(rect.x + 14, top, rect.width - 28, 220)
-        pygame.draw.rect(self.screen, (28, 32, 38), chart, border_radius=6)
+        chart = pygame.Rect(
+            rect.x + theme.SPACE_LG,
+            top,
+            rect.width - 2 * theme.SPACE_LG,
+            height,
+        )
+        pygame.draw.rect(self.screen, theme.SURFACE, chart, border_radius=theme.RADIUS_MD)
+        pygame.draw.rect(self.screen, theme.BORDER, chart, 1, border_radius=theme.RADIUS_MD)
+        title_image = self.font_small.render("RECOMPENSA", True, theme.TEXT_MUTED)
+        self.screen.blit(title_image, (chart.x + 12, chart.y + 8))
         if len(progress) < 2:
+            empty = self.font_small.render("sin datos", True, theme.TEXT_MUTED)
+            self.screen.blit(
+                empty,
+                (chart.centerx - empty.get_width() // 2, chart.centery - 8),
+            )
             return
+        plot = pygame.Rect(
+            chart.x + 12,
+            chart.y + 32,
+            chart.width - 24,
+            chart.height - 44,
+        )
         rewards = [point[1] for point in progress]
         low = min(rewards)
         high = max(rewards)
         span = (high - low) if high > low else 1.0
-        for index in range(1, len(rewards)):
-            x0 = chart.x + chart.width * (index - 1) / (len(rewards) - 1)
-            x1 = chart.x + chart.width * index / (len(rewards) - 1)
-            y0 = chart.bottom - chart.height * (rewards[index - 1] - low) / span
-            y1 = chart.bottom - chart.height * (rewards[index] - low) / span
-            pygame.draw.line(self.screen, (120, 200, 255), (x0, y0), (x1, y1), 2)
+        for fraction in (0.0, 0.5, 1.0):
+            grid_y = plot.bottom - int(plot.height * fraction)
+            pygame.draw.line(
+                self.screen,
+                theme.SURFACE_ALT,
+                (plot.x, grid_y),
+                (plot.right, grid_y),
+                1,
+            )
+        points = [
+            (
+                plot.x + int(plot.width * index / (len(rewards) - 1)),
+                plot.bottom - int(plot.height * (value - low) / span),
+            )
+            for index, value in enumerate(rewards)
+        ]
+        area = pygame.Surface((plot.width, plot.height), pygame.SRCALPHA)
+        local = [(px - plot.x, py - plot.y) for px, py in points]
+        pygame.draw.polygon(
+            area,
+            (theme.PRIMARY[0], theme.PRIMARY[1], theme.PRIMARY[2], 46),
+            local + [(plot.width, plot.height), (0, plot.height)],
+        )
+        self.screen.blit(area, plot.topleft)
+        pygame.draw.lines(self.screen, theme.PRIMARY_SOFT, False, points, 2)
+        pygame.draw.circle(self.screen, theme.ACCENT, points[-1], 4)
+        high_image = self.font_small.render(f"{high:0.2f}", True, theme.TEXT_MUTED)
+        low_image = self.font_small.render(f"{low:0.2f}", True, theme.TEXT_MUTED)
+        self.screen.blit(high_image, (plot.right - high_image.get_width(), plot.y + 2))
+        self.screen.blit(low_image, (plot.right - low_image.get_width(), plot.bottom - 18))
