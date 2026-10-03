@@ -76,6 +76,15 @@ class Drive:
     ) -> None:
         self.config = config if config is not None else SimulationConfig()
         self.drive_config = drive_config if drive_config is not None else DriveConfig()
+        starts = (
+            (self.config.quarterback_start,)
+            + tuple(self.config.receiver_starts)
+            + tuple(self.config.defender_starts)
+            + tuple(self.config.rusher_starts)
+        )
+        active = [start for start in starts if not (start[0] == 0.0 and start[1] == 0.0)]
+        min_start_x = min(start[0] for start in active)
+        self._min_los = max(0.0, self.config.quarterback_start[0] - min_start_x)
         self.seed = int(seed)
         self._rng = np.random.default_rng(self.seed)
         self._routes: tuple[RouteName, ...] = ()
@@ -94,6 +103,7 @@ class Drive:
             self._rng = np.random.default_rng(self.seed)
         low, high = self.drive_config.los_range
         los = float(self._rng.uniform(low, high))
+        los = max(los, self._min_los)
         distance = min(self.drive_config.first_down_yards, self.drive_config.goal_line - los)
         self.state = DriveState(los=los, distance=distance)
         self._routes = ()
@@ -132,6 +142,7 @@ class Drive:
             else:
                 outcome = PlayOutcome.INCOMPLETE
         spot = self._spot(state, outcome, old_los)
+        spot = max(spot, self._min_los)
         yards = spot - old_los
         touchdown = outcome is PlayOutcome.TOUCHDOWN
         first_down = False

@@ -178,6 +178,28 @@ def test_sack_spot_is_the_quarterback_position() -> None:
     assert result.yards == pytest.approx(-3.5)
 
 
+def test_spot_never_drops_below_the_formation_floor() -> None:
+    drive = _drive(los_range=(25.0, 25.0))
+    play = drive.start_play()
+    _finish_play(play, PlayOutcome.SACK, qb_x=0.0)
+
+    result = drive.advance(play)
+
+    assert result.spot >= 2.0
+    assert drive.state.los >= 2.0
+
+
+def test_start_play_after_a_deep_loss_does_not_raise() -> None:
+    drive = _drive(los_range=(25.0, 25.0))
+    play = drive.start_play()
+    _finish_play(play, PlayOutcome.SACK, qb_x=0.0)
+    drive.advance(play)
+
+    next_play = drive.start_play()
+
+    assert next_play.line_of_scrimmage == pytest.approx(drive.state.los)
+
+
 def test_max_plays_ends_the_drive() -> None:
     drive = _drive(los_range=(40.0, 40.0), max_plays=2)
     for _ in range(2):
