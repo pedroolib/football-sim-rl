@@ -112,6 +112,18 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         low, high = los_range
         if not 0.0 <= low <= high < self.goal_line:
             raise ValueError("los_range must be inside the field")
+        starts = (
+            (self.scenario.config.quarterback_start,)
+            + tuple(self.scenario.config.receiver_starts)
+            + tuple(self.scenario.config.defender_starts)
+            + tuple(self.scenario.config.rusher_starts)
+        )
+        floor = max(
+            0.0,
+            self.scenario.config.quarterback_start[0] - min(start[0] for start in starts),
+        )
+        if low < floor:
+            raise ValueError("los_range is below the formation floor")
         self.los_range = (float(low), float(high))
         self.max_steps = int(max_steps)
         self._drive_context = DriveState(

@@ -58,6 +58,11 @@ def test_role_play_reset_samples_the_los_inside_the_range() -> None:
     assert env.play.state.player("qb").position[0] == pytest.approx(second)
 
 
+def test_role_play_rejects_an_los_range_below_the_formation_floor() -> None:
+    with pytest.raises(ValueError, match="formation floor"):
+        RolePlayEnv(los_range=(0.0, 0.0))
+
+
 def test_role_play_observation_uses_the_shifted_start() -> None:
     env = RolePlayEnv(los_range=(45.0, 45.0))
     env.reset(seed=0)

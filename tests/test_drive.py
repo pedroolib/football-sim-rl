@@ -6,6 +6,7 @@ from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.drive import Drive, DriveConfig
 from qb_sim.rules.routes import DEFAULT_ROUTE_POOL
+from qb_sim.rules.scenarios import PRESSURED_SCENARIO
 
 ZERO_DEVIATION = replace(
     SimulationConfig(),
@@ -187,6 +188,15 @@ def test_spot_never_drops_below_the_formation_floor() -> None:
 
     assert result.spot >= 2.0
     assert drive.state.los >= 2.0
+
+
+def test_min_los_includes_placeholder_starts() -> None:
+    drive = Drive(PRESSURED_SCENARIO.config, DriveConfig(los_range=(5.0, 5.0)))
+
+    assert drive.state.los >= 20.0
+    play = drive.start_play()
+
+    assert play.line_of_scrimmage == pytest.approx(drive.state.los)
 
 
 def test_start_play_after_a_deep_loss_does_not_raise() -> None:

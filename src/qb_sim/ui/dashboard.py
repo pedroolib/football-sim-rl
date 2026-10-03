@@ -9,10 +9,12 @@ import pygame
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.monitoring import (
+    DefenderPolicyCallable,
     DemoPanel,
     DriveDemoPanel,
     DriveQuarterbackPolicy,
     QuarterbackPolicy,
+    ReceiverPolicyCallable,
     RoleDriveDemoPanel,
     RolePlayDemoPanel,
     checkpoint_catalog,
@@ -41,6 +43,12 @@ _SPEED_KEYS = {pygame.K_1: 1, pygame.K_2: 2, pygame.K_3: 4}
 _PREVIOUS_KEYS = (pygame.K_LEFT, pygame.K_LEFTBRACKET)
 _NEXT_KEYS = (pygame.K_RIGHT, pygame.K_RIGHTBRACKET)
 ENV_KINDS = ("passing", "drive", "role_play", "role_drive")
+LearnerPolicy = (
+    QuarterbackPolicy
+    | DriveQuarterbackPolicy
+    | ReceiverPolicyCallable
+    | DefenderPolicyCallable
+)
 
 
 class TrainingDashboard:
@@ -53,7 +61,7 @@ class TrainingDashboard:
         panels: int = 6,
         screen_size: tuple[int, int] = DEFAULT_SCREEN_SIZE,
         reload_seconds: float = DEFAULT_RELOAD_SECONDS,
-        policy_factory: Callable[[Path], QuarterbackPolicy | DriveQuarterbackPolicy] | None = None,
+        policy_factory: Callable[[Path], LearnerPolicy] | None = None,
         env_kind: str = "passing",
         learner: str = "wr1",
         opponent_policies: dict | None = None,
@@ -83,8 +91,8 @@ class TrainingDashboard:
         self._live = True
         self._opponents = dict(opponent_policies or {})
         if env_kind == "drive":
-            self._policy: QuarterbackPolicy | DriveQuarterbackPolicy | None = (
-                rule_drive_quarterback_policy(self.scenario.config)
+            self._policy: LearnerPolicy | None = rule_drive_quarterback_policy(
+                self.scenario.config
             )
             self._panels: list[
                 DemoPanel | DriveDemoPanel | RolePlayDemoPanel | RoleDriveDemoPanel
@@ -142,7 +150,7 @@ class TrainingDashboard:
         return self._checkpoint_path
 
     @property
-    def policy(self) -> QuarterbackPolicy | DriveQuarterbackPolicy | None:
+    def policy(self) -> LearnerPolicy | None:
         """Learner policy currently used by the panels."""
         return self._policy
 
@@ -155,9 +163,7 @@ class TrainingDashboard:
         """Whether the dashboard is training or replaying saved policies."""
         return "entrenando" if self.training else "demo"
 
-    def _default_policy_factory(
-        self, path: Path
-    ) -> QuarterbackPolicy | DriveQuarterbackPolicy:
+    def _default_policy_factory(self, path: Path) -> LearnerPolicy:
         if self.env_kind == "role_play":
             from qb_sim.training.policy import load_receiver_policy
 

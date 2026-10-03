@@ -25,6 +25,11 @@ DriveQuarterbackPolicy = Callable[
     [PlayState, tuple[RouteName, ...], DriveState],
     Move | Throw | None,
 ]
+ReceiverPolicyCallable = Callable[
+    [PlayState, RouteName | None, Vector2 | None],
+    Move | None,
+]
+DefenderPolicyCallable = Callable[[PlayState, str | None, DriveState], Move | None]
 
 _CHECKPOINT_SUFFIX = "_steps.zip"
 _HOLD_TICKS = 10
@@ -349,10 +354,11 @@ class RolePlayDemoPanel:
 
     scenario: Scenario
     learner_id: str = "wr1"
-    policy: Callable | None = None
+    policy: ReceiverPolicyCallable | None = None
     opponents: dict = field(default_factory=dict)
     seed: int = 0
     goal_line: float = 100.0
+    los_range: tuple[float, float] = (25.0, 50.0)
     plays: int = 0
     catches: int = 0
     yards: float = 0.0
@@ -397,14 +403,22 @@ class RolePlayDemoPanel:
         """Learner catches as a percentage of finished plays."""
         return 100.0 * self.catches / self.plays if self.plays else 0.0
 
-    def set_policy(self, policy: Callable | None) -> None:
+    def set_policy(self, policy: ReceiverPolicyCallable | None) -> None:
         """Swap the receiver policy without resetting the play."""
         self.policy = policy
 
     def _setup_episode(self) -> None:
+        low, high = self.los_range
+        los = float(self._rng.uniform(low, high))
         self._routes = sample_routes(self._rng, len(self.scenario.config.receiver_starts))
         play_seed = int(self._rng.integers(0, 2**31 - 1))
-        self._play = Play(self.scenario.config, seed=play_seed, goal_line=self.goal_line)
+        self._play = Play(
+            self.scenario.config,
+            seed=play_seed,
+            line_of_scrimmage=los,
+            goal_line=self.goal_line,
+        )
+        self._drive_context.los = los
         self._agents = build_rule_agents(
             self._play,
             self._routes,
@@ -473,7 +487,7 @@ class RolePlayDemoPanel:
                 self.catches += 1
                 self.yards += float(
                     state.player(self.learner_id).position[0]
-                    - self.scenario.config.quarterback_start[0]
+                    - self._play.line_of_scrimmage
                 )
             self._hold = _HOLD_TICKS
         return state
@@ -485,7 +499,7 @@ class RoleDriveDemoPanel:
 
     scenario: Scenario
     learner_id: str = "cb1"
-    policy: Callable | None = None
+    policy: DefenderPolicyCallable | None = None
     opponents: dict = field(default_factory=dict)
     seed: int = 0
     drive_config: DriveConfig | None = None
@@ -528,7 +542,7 @@ class RoleDriveDemoPanel:
             100.0 * self.touchdowns_allowed / self.drives if self.drives else 0.0
         )
 
-    def set_policy(self, policy: Callable | None) -> None:
+    def set_policy(self, policy: DefenderPolicyCallable | None) -> None:
         """Swap the defender policy without resetting the drive."""
         self.policy = policy
 
@@ -603,6 +617,8 @@ class RoleDriveDemoPanel:
         state = self._play.step(actions)
         if state.outcome is not PlayOutcome.IN_PROGRESS:
             result = self._drive.advance(self._play)
+            if result.outcome is PlayOutcome.SACK:
+                self.sacks += 1
             self.last_outcome = self._drive.state.end_reason or result.outcome.value
             if self._drive.state.terminated:
                 self.drives += 1

@@ -166,6 +166,7 @@ def test_role_play_panel_is_deterministic_for_a_seed() -> None:
         second.play.state.player("wr1").position.tolist()
     )
     assert first.routes == second.routes
+    assert first.play.line_of_scrimmage == pytest.approx(second.play.line_of_scrimmage)
 
 
 def test_role_play_panel_calls_the_qb_opponent_and_throws() -> None:
@@ -217,6 +218,95 @@ def test_run_has_training_artifacts(tmp_path) -> None:
     (tmp_path / "config.json").write_text("{}", encoding="utf-8")
 
     assert run_has_training_artifacts(tmp_path)
+
+
+def test_role_play_panel_samples_the_los_inside_the_range() -> None:
+    contexts: list[float] = []
+
+    def qb(state, routes, drive_state):
+        contexts.append(drive_state.los)
+        return None
+
+    panel = RolePlayDemoPanel(
+        get_scenario("stage_b"),
+        learner_id="wr1",
+        opponents={"qb": qb},
+        seed=0,
+        los_range=(30.0, 40.0),
+    )
+    panel.tick()
+
+    los = panel.play.line_of_scrimmage
+    assert 30.0 <= los <= 40.0
+    assert panel.play.state.player("qb").position[0] == pytest.approx(los)
+    assert contexts[0] == pytest.approx(los)
+
+
+def test_role_play_panel_passes_the_shifted_start_to_the_policy() -> None:
+    starts: list[tuple[float, float]] = []
+
+    def policy(state, route, start):
+        starts.append(tuple(start))
+        return None
+
+    panel = RolePlayDemoPanel(
+        get_scenario("stage_b"),
+        learner_id="wr1",
+        opponents={"qb": _rule_qb()},
+        policy=policy,
+        seed=0,
+        los_range=(45.0, 45.0),
+    )
+    panel.tick()
+
+    assert starts
+    assert starts[0][0] == pytest.approx(45.0)
+    assert starts[0][1] == pytest.approx(43.0)
+
+
+def test_role_play_panel_measures_yards_from_the_los() -> None:
+    panel = RolePlayDemoPanel(
+        get_scenario("stage_b"),
+        learner_id="wr1",
+        opponents={"qb": _rule_qb()},
+        seed=0,
+        los_range=(40.0, 40.0),
+    )
+    state = panel.play.state
+    state.player("wr1").position = vec2(52.0, 43.0)
+    state.carrier_id = "wr1"
+    state.ball.status = BallStatus.CARRIED
+    state.carry_started_at = state.elapsed_seconds
+
+    for _ in range(600):
+        panel.tick()
+        if panel.plays >= 1:
+            break
+
+    assert panel.plays >= 1
+    expected = panel.play.state.player("wr1").position[0] - panel.play.line_of_scrimmage
+    assert panel.yards == pytest.approx(expected)
+
+
+def test_role_drive_panel_counts_sacks() -> None:
+    def passive_qb(state, routes, drive_state):
+        return None
+
+    panel = RoleDriveDemoPanel(
+        get_scenario("stage_b"),
+        learner_id="cb1",
+        opponents={"qb": passive_qb},
+        seed=0,
+        drive_config=DriveConfig(los_range=(40.0, 40.0)),
+    )
+
+    for _ in range(2000):
+        panel.tick()
+        if panel.drives >= 1:
+            break
+
+    assert panel.drives >= 1
+    assert panel.sacks >= 1
 
 
 def test_role_drive_panel_tracks_drives() -> None:

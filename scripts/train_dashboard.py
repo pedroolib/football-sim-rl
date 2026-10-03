@@ -54,7 +54,12 @@ def main() -> None:
         "role_drive": "cb1",
     }
     learner = args.learner or default_learners[args.env]
-    opponents = tuple(entry.split("=", 1) for entry in args.opponent)
+    opponents: list[tuple[str, str]] = []
+    for entry in args.opponent:
+        parts = entry.split("=", 1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            parser.error(f"--opponent expects ID=PATH, got {entry!r}")
+        opponents.append((parts[0], parts[1]))
     opponent_policies = None
     if args.env in ("role_play", "role_drive"):
         from qb_sim.training.train import build_opponents

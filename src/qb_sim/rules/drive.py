@@ -82,9 +82,7 @@ class Drive:
             + tuple(self.config.defender_starts)
             + tuple(self.config.rusher_starts)
         )
-        active = [start for start in starts if not (start[0] == 0.0 and start[1] == 0.0)]
-        min_start_x = min(start[0] for start in active)
-        self._min_los = max(0.0, self.config.quarterback_start[0] - min_start_x)
+        self._min_los = max(0.0, self.config.quarterback_start[0] - min(s[0] for s in starts))
         self.seed = int(seed)
         self._rng = np.random.default_rng(self.seed)
         self._routes: tuple[RouteName, ...] = ()
