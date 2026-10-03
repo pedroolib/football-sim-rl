@@ -135,6 +135,16 @@ def test_throw_power_scales_range() -> None:
     assert hard.state.ball.target.tolist() == pytest.approx([65.0, 26.65])
 
 
+def test_only_the_ball_carrier_keeps_the_ball_attached() -> None:
+    play = Play()
+
+    state = play.step({"qb": Move(direction=vec2(1.0, 0.0))})
+    assert state.ball.position.tolist() == pytest.approx(state.player("qb").position.tolist())
+
+    state = play.step()
+    assert state.ball.position.tolist() == pytest.approx(state.player("qb").position.tolist())
+
+
 def test_actions_do_not_persist_between_ticks() -> None:
     play = Play()
     play.step({"qb": Move(direction=vec2(1.0, 0.0))})

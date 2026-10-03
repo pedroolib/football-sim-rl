@@ -319,6 +319,8 @@ class Play:
             new_position = self.config.field.clamp(new_position)
         player.position = new_position
         player.velocity = (new_position - previous) / dt
+        if player.player_id == _QB_ID and self.state.ball.status is BallStatus.HELD:
+            self.state.ball.position = new_position.copy()
 
     def _speed_for(self, role: Role) -> float:
         if role is Role.QUARTERBACK:
