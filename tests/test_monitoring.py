@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from qb_sim.agents.rule_controllers import HeuristicQuarterback
@@ -8,6 +10,7 @@ from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.monitoring import (
+    CompositionDemoPanel,
     DemoPanel,
     DriveDemoPanel,
     RoleDriveDemoPanel,
@@ -307,6 +310,44 @@ def test_role_drive_panel_counts_sacks() -> None:
 
     assert panel.drives >= 1
     assert panel.sacks >= 1
+
+
+def test_composition_panel_runs_drives_with_a_qb_policy() -> None:
+    calls: list[int] = []
+
+    def qb(state, routes, drive_state):
+        calls.append(1)
+        return None
+
+    panel = CompositionDemoPanel(
+        get_scenario("stage_b"),
+        qb_policy=qb,
+        seed=0,
+        drive_config=DriveConfig(los_range=(40.0, 40.0)),
+    )
+
+    for _ in range(3000):
+        panel.tick()
+        if panel.drives >= 1:
+            break
+
+    assert calls
+    assert panel.drives >= 1
+    assert panel.last_outcome != ""
+
+
+def test_composition_panel_rebuild_uses_the_new_config() -> None:
+    scenario = get_scenario("stage_b")
+    panel = CompositionDemoPanel(
+        scenario,
+        seed=0,
+        drive_config=DriveConfig(los_range=(40.0, 40.0)),
+    )
+
+    faster = replace(scenario, config=replace(scenario.config, receiver_speed=8.5))
+    panel.rebuild(faster, DriveConfig(los_range=(40.0, 40.0)), None, {})
+
+    assert panel.play.config.receiver_speed == 8.5
 
 
 def test_role_drive_panel_tracks_drives() -> None:

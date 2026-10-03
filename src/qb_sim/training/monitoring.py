@@ -627,3 +627,138 @@ class RoleDriveDemoPanel:
             else:
                 self._start_play()
         return state
+
+
+@dataclass(slots=True)
+class CompositionDemoPanel:
+    """One live demo drive where every role runs from a selected policy."""
+
+    scenario: Scenario
+    qb_policy: Callable | None = None
+    opponents: dict = field(default_factory=dict)
+    seed: int = 0
+    drive_config: DriveConfig | None = None
+    drives: int = 0
+    touchdowns: int = 0
+    points: float = 0.0
+    first_downs: int = 0
+    last_outcome: str = ""
+    _hold: int = field(default=0, repr=False)
+    _drive: Drive = field(init=False, repr=False)
+    _play: Play = field(init=False, repr=False)
+    _agents: dict = field(default_factory=dict, repr=False)
+    _rule_qb: HeuristicQuarterback = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._drive = Drive(self.scenario.config, self.drive_config, seed=self.seed)
+        self._rule_qb = HeuristicQuarterback("qb", self.scenario.config)
+        self._start_play()
+
+    @property
+    def play(self) -> Play:
+        """The current mechanical play."""
+        return self._play
+
+    @property
+    def drive(self) -> Drive:
+        """The current drive state holder."""
+        return self._drive
+
+    @property
+    def receiver_routes(self) -> dict[str, Route]:
+        """Routes of the rule receivers, for visualization."""
+        return {
+            player_id: agent.route
+            for player_id, agent in self._agents.items()
+            if isinstance(agent, ReceiverRouteController)
+        }
+
+    @property
+    def down_label(self) -> str:
+        """Down, distance, and field position of the current play."""
+        state = self._drive.state
+        if state.terminated:
+            return state.end_reason or "drive over"
+        ordinal = _ORDINALS.get(state.down, f"{state.down}th")
+        return f"{ordinal} & {state.distance:.0f} @ {state.los:.0f}"
+
+    def rebuild(
+        self,
+        scenario: Scenario,
+        drive_config: DriveConfig | None,
+        qb_policy: Callable | None,
+        opponents: dict,
+    ) -> None:
+        """Apply new models and parameters and restart the drive."""
+        self.scenario = scenario
+        self.drive_config = drive_config
+        self.qb_policy = qb_policy
+        self.opponents = dict(opponents)
+        self._rule_qb = HeuristicQuarterback("qb", scenario.config)
+        self._drive = Drive(scenario.config, drive_config, seed=self.seed)
+        self._start_play()
+
+    def _start_play(self) -> None:
+        self._play = self._drive.start_play()
+        self._agents = build_rule_agents(
+            self._play,
+            self._drive.routes,
+            self.scenario.config,
+            include_quarterback=False,
+        )
+        self._hold = 0
+
+    def restart(self, seed: int | None = None) -> PlayState:
+        """Start a new drive with the next seed."""
+        if seed is not None:
+            self.seed = int(seed)
+        self._drive = Drive(self.scenario.config, self.drive_config, seed=self.seed)
+        self._start_play()
+        return self._play.state
+
+    def tick(self) -> PlayState:
+        """Advance one tick; start the next down or hold after the drive ends."""
+        state = self._play.state
+        if state.outcome is not PlayOutcome.IN_PROGRESS:
+            if self._hold > 0:
+                self._hold -= 1
+                return state
+            self.restart(seed=self.seed + 1)
+            return self._play.state
+
+        actions: dict[str, Move | Throw] = {}
+        actors: dict = {**self._agents, **self.opponents}
+        for player_id, actor in actors.items():
+            if player_id == "qb":
+                continue
+            if player_id in self.opponents:
+                decided = decide_player_action(
+                    self._play,
+                    self._drive.routes,
+                    player_id,
+                    actor,
+                    self._drive.state,
+                )
+            else:
+                decided = actor.decide(state)
+            if decided is not None:
+                actions[player_id] = decided
+        if self.qb_policy is not None:
+            decided = self.qb_policy(state, self._drive.routes, self._drive.state)
+        else:
+            decided = self._rule_qb.decide(state)
+        if decided is not None:
+            actions["qb"] = decided
+        state = self._play.step(actions)
+        if state.outcome is not PlayOutcome.IN_PROGRESS:
+            result = self._drive.advance(self._play)
+            self.first_downs += int(result.first_down)
+            self.last_outcome = self._drive.state.end_reason or result.outcome.value
+            if self._drive.state.terminated:
+                self.drives += 1
+                self.touchdowns += int(result.touchdown)
+                self.points += result.points
+                self._hold = _HOLD_TICKS
+            else:
+                self._start_play()
+        return state

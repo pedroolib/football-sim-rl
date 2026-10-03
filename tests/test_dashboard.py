@@ -3,8 +3,10 @@ import pytest
 pygame = pytest.importorskip("pygame")
 
 from qb_sim.agents.rule_controllers import HeuristicQuarterback  # noqa: E402
+from qb_sim.rules.drive import DriveConfig  # noqa: E402
 from qb_sim.rules.scenarios import get_scenario  # noqa: E402
 from qb_sim.ui.dashboard import TrainingDashboard  # noqa: E402
+from qb_sim.ui.menu import ModelMenu, ModelOption, ParameterMenu  # noqa: E402
 
 
 class _StubPolicy:
@@ -154,6 +156,109 @@ def test_dashboard_mode_label(dummy_video, tmp_path) -> None:
     dashboard = TrainingDashboard(tmp_path, panels=1, screen_size=(320, 240))
     try:
         assert dashboard.mode_label() == "demo"
+    finally:
+        dashboard.close()
+
+
+def _composition_menus():
+    scenario = get_scenario("stage_b")
+    menu = ModelMenu({role: [ModelOption("reglas", None)] for role in ModelMenu.ROLES})
+    parameters = ParameterMenu(scenario.config, DriveConfig(los_range=(40.0, 40.0)))
+    return menu, parameters
+
+
+def test_dashboard_composition_mode_runs_drives(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    calls: list[int] = []
+
+    def qb(state, routes, drive_state):
+        calls.append(1)
+        return None
+
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        opponent_policies={"qb": qb},
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        for _ in range(200):
+            dashboard.step_frames(0.05)
+        dashboard.draw_frame()
+
+        assert calls
+        assert dashboard.panels[0].drive.state.play_number >= 1
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_parameter_menu_adjusts_the_scenario(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m)])
+        assert dashboard._menu_mode == "params"
+
+        index = next(
+            i for i, entry in enumerate(parameters.entries) if entry.name == "receiver_speed"
+        )
+        parameters.index = index
+        before = parameters.sim_config().receiver_speed
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)])
+
+        assert parameters.sim_config().receiver_speed > before
+        assert dashboard.scenario.config.receiver_speed > before
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_model_menu_cycles_the_focused_role(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n)])
+        assert dashboard._menu_mode == "models"
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)])
+
+        assert menu.current("qb").label == "reglas"
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_composition_ignores_checkpoint_keys(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)])
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT)])
+
+        assert dashboard.checkpoint_path is None
     finally:
         dashboard.close()
 

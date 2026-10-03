@@ -24,10 +24,15 @@ def main() -> None:
     parser.add_argument("--scenario", default="rushed", choices=sorted(SCENARIOS))
     parser.add_argument(
         "--env",
-        choices=("passing", "drive", "role_play", "role_drive"),
+        choices=("passing", "drive", "role_play", "role_drive", "composition"),
         default="passing",
     )
     parser.add_argument("--learner", default=None)
+    parser.add_argument(
+        "--qb-model",
+        default=None,
+        help="Default quarterback model for composition mode.",
+    )
     parser.add_argument(
         "--opponent",
         action="append",
@@ -52,6 +57,7 @@ def main() -> None:
         "drive": "qb",
         "role_play": "wr1",
         "role_drive": "cb1",
+        "composition": "qb",
     }
     learner = args.learner or default_learners[args.env]
     opponents: list[tuple[str, str]] = []
@@ -61,10 +67,14 @@ def main() -> None:
             parser.error(f"--opponent expects ID=PATH, got {entry!r}")
         opponents.append((parts[0], parts[1]))
     opponent_policies = None
-    if args.env in ("role_play", "role_drive"):
+    if args.env in ("role_play", "role_drive", "composition"):
         from qb_sim.training.train import build_opponents
 
         opponent_policies = build_opponents(args.env, args.scenario, opponents)
+    if args.train and args.env == "composition":
+        parser.error(
+            "composition no entrena: elegí --env drive, role_play o role_drive con --train."
+        )
 
     run_dir = Path(args.output_dir) / args.run_name
     if args.train and run_has_training_artifacts(run_dir) and not args.force:
@@ -109,6 +119,7 @@ def main() -> None:
             learner=learner,
             opponent_policies=opponent_policies,
             training=args.train,
+            qb_model=args.qb_model,
         ).run()
     finally:
         if process is not None:

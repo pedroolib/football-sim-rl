@@ -2,13 +2,16 @@
 
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pygame
 
+from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.monitoring import (
+    CompositionDemoPanel,
     DefenderPolicyCallable,
     DemoPanel,
     DriveDemoPanel,
@@ -25,6 +28,7 @@ from qb_sim.training.monitoring import (
     rule_quarterback_policy,
     total_timesteps,
 )
+from qb_sim.ui.menu import ModelMenu, ParameterMenu
 from qb_sim.ui.rendering import (
     draw_ball,
     draw_field,
@@ -42,7 +46,7 @@ DEFAULT_RELOAD_SECONDS = 5.0
 _SPEED_KEYS = {pygame.K_1: 1, pygame.K_2: 2, pygame.K_3: 4}
 _PREVIOUS_KEYS = (pygame.K_LEFT, pygame.K_LEFTBRACKET)
 _NEXT_KEYS = (pygame.K_RIGHT, pygame.K_RIGHTBRACKET)
-ENV_KINDS = ("passing", "drive", "role_play", "role_drive")
+ENV_KINDS = ("passing", "drive", "role_play", "role_drive", "composition")
 LearnerPolicy = (
     QuarterbackPolicy
     | DriveQuarterbackPolicy
@@ -66,6 +70,9 @@ class TrainingDashboard:
         learner: str = "wr1",
         opponent_policies: dict | None = None,
         training: bool = False,
+        qb_model: str | Path | None = None,
+        model_menu: ModelMenu | None = None,
+        parameter_menu: ParameterMenu | None = None,
     ) -> None:
         if env_kind not in ENV_KINDS:
             raise ValueError(f"unknown env_kind: {env_kind!r}")
@@ -90,12 +97,20 @@ class TrainingDashboard:
         self._catalog: list[Path] = checkpoint_catalog(self.run_dir)
         self._live = True
         self._opponents = dict(opponent_policies or {})
+        self._menu_mode: str | None = None
+        self._parameter_menu: ParameterMenu | None = parameter_menu
+        self._model_menu: ModelMenu | None = model_menu
+        self._composition_policies: dict = {}
         if env_kind == "drive":
             self._policy: LearnerPolicy | None = rule_drive_quarterback_policy(
                 self.scenario.config
             )
             self._panels: list[
-                DemoPanel | DriveDemoPanel | RolePlayDemoPanel | RoleDriveDemoPanel
+                DemoPanel
+                | DriveDemoPanel
+                | RolePlayDemoPanel
+                | RoleDriveDemoPanel
+                | CompositionDemoPanel
             ] = [
                 DriveDemoPanel(self.scenario, policy=self._policy, seed=1000 + index)
                 for index in range(panels)
@@ -124,6 +139,30 @@ class TrainingDashboard:
                 )
                 for index in range(panels)
             ]
+        elif env_kind == "composition":
+            self._parameter_menu = self._parameter_menu or ParameterMenu(
+                self.scenario.config, DriveConfig()
+            )
+            self._model_menu = self._model_menu or ModelMenu.discover()
+            self._prefer_default_models(qb_model)
+            self._composition_policies = self._build_composition_policies()
+            qb_policy = self._composition_policies.get("qb")
+            opponents = {
+                role: policy
+                for role, policy in self._composition_policies.items()
+                if role != "qb"
+            }
+            self._policy = qb_policy
+            self._panels = [
+                CompositionDemoPanel(
+                    self.scenario,
+                    qb_policy=qb_policy,
+                    opponents=opponents,
+                    seed=1000 + index,
+                    drive_config=self._parameter_menu.drive_config(),
+                )
+                for index in range(panels)
+            ]
         else:
             self._policy = rule_quarterback_policy(self.scenario.config)
             self._panels = [
@@ -140,9 +179,81 @@ class TrainingDashboard:
     @property
     def panels(
         self,
-    ) -> list[DemoPanel | DriveDemoPanel | RolePlayDemoPanel | RoleDriveDemoPanel]:
+    ) -> list[
+        DemoPanel
+        | DriveDemoPanel
+        | RolePlayDemoPanel
+        | RoleDriveDemoPanel
+        | CompositionDemoPanel
+    ]:
         """Demo panels in display order."""
         return self._panels
+
+    def _prefer_default_models(self, qb_model: str | Path | None) -> None:
+        if self._model_menu is None:
+            return
+        if qb_model is not None:
+            self._model_menu.choose("qb", Path(qb_model).parent.name)
+        else:
+            for label in ("ppo_drive_qb_v12", "ppo_drive_qb_v11"):
+                if self._model_menu.choose("qb", label):
+                    break
+        defaults = {
+            "wr1": ("ppo_wr_v1",),
+            "wr2": ("ppo_wr_v1",),
+            "cb1": ("ppo_cb_v1",),
+            "cb2": ("ppo_cb_v1",),
+            "ru1": ("ppo_ru_v1_bc", "ppo_ru_v1"),
+        }
+        for role, labels in defaults.items():
+            for label in labels:
+                if self._model_menu.choose(role, label):
+                    break
+
+    def _build_composition_policies(self) -> dict:
+        if self._model_menu is None:
+            return {}
+        from qb_sim.training.policy import (
+            load_defender_policy,
+            load_drive_policy,
+            load_receiver_policy,
+        )
+
+        policies: dict = {}
+        for role, path in self._model_menu.paths().items():
+            if path is None:
+                continue
+            try:
+                if role == "qb":
+                    policies[role] = load_drive_policy(path, self.scenario.name)
+                elif role in ("wr1", "wr2"):
+                    policies[role] = load_receiver_policy(path, self.scenario.name, role)
+                else:
+                    policies[role] = load_defender_policy(path, self.scenario.name, role)
+            except Exception as error:  # noqa: BLE001 - model may be mid-write
+                print(f"modelo no cargado ({role}, {path.name}): {error}")
+        policies.update(self._opponents)
+        return policies
+
+    def _rebuild_composition(self) -> None:
+        if self._parameter_menu is None:
+            return
+        self.scenario = replace(self.scenario, config=self._parameter_menu.sim_config())
+        drive_config = self._parameter_menu.drive_config()
+        qb_policy = self._composition_policies.get("qb")
+        opponents = {
+            role: policy
+            for role, policy in self._composition_policies.items()
+            if role != "qb"
+        }
+        self._policy = qb_policy
+        for panel in self._panels:
+            if isinstance(panel, CompositionDemoPanel):
+                panel.rebuild(self.scenario, drive_config, qb_policy, opponents)
+
+    def _reload_composition(self) -> None:
+        self._composition_policies = self._build_composition_policies()
+        self._rebuild_composition()
 
     @property
     def checkpoint_path(self) -> Path | None:
@@ -161,6 +272,8 @@ class TrainingDashboard:
 
     def mode_label(self) -> str:
         """Whether the dashboard is training or replaying saved policies."""
+        if self.env_kind == "composition":
+            return "composición"
         return "entrenando" if self.training else "demo"
 
     def _default_policy_factory(self, path: Path) -> LearnerPolicy:
@@ -172,7 +285,7 @@ class TrainingDashboard:
             from qb_sim.training.policy import load_defender_policy
 
             return load_defender_policy(path, self.scenario.name, self.learner)
-        if self.env_kind == "drive":
+        if self.env_kind in ("drive", "composition"):
             from qb_sim.training.policy import load_drive_policy
 
             return load_drive_policy(path, self.scenario.name)
@@ -201,6 +314,8 @@ class TrainingDashboard:
 
     def select_previous_checkpoint(self) -> None:
         """Load the previous generation in the catalog."""
+        if self.env_kind == "composition":
+            return
         self._refresh_catalog()
         if not self._catalog:
             return
@@ -211,6 +326,8 @@ class TrainingDashboard:
 
     def select_next_checkpoint(self) -> None:
         """Load the next generation in the catalog."""
+        if self.env_kind == "composition":
+            return
         self._refresh_catalog()
         if not self._catalog:
             return
@@ -226,6 +343,8 @@ class TrainingDashboard:
 
     def checkpoint_status(self) -> str:
         """Human-readable generation and progress label."""
+        if self.env_kind == "composition" and self._model_menu is not None:
+            return f"modelos: qb={self._model_menu.current('qb').label}"
         self._refresh_catalog()
         if not self._catalog:
             return "checkpoint: reglas"
@@ -239,6 +358,8 @@ class TrainingDashboard:
 
     def reload_policy(self) -> None:
         """Load the newest checkpoint when it changes (only while live)."""
+        if self.env_kind == "composition":
+            return
         self._refresh_catalog()
         if not self._live:
             return
@@ -263,8 +384,28 @@ class TrainingDashboard:
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
+                if self._menu_mode is not None:
+                    if event.key == pygame.K_ESCAPE:
+                        self._menu_mode = None
+                    elif event.key == pygame.K_m and self.env_kind == "composition":
+                        self._menu_mode = "params"
+                    elif event.key == pygame.K_n and self.env_kind == "composition":
+                        self._menu_mode = "models"
+                    elif event.key == pygame.K_UP:
+                        self._move_menu_selection(-1)
+                    elif event.key == pygame.K_DOWN:
+                        self._move_menu_selection(1)
+                    elif event.key == pygame.K_LEFT:
+                        self._adjust_menu(-1)
+                    elif event.key == pygame.K_RIGHT:
+                        self._adjust_menu(1)
+                    continue
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
+                elif event.key == pygame.K_m and self.env_kind == "composition":
+                    self._menu_mode = "params"
+                elif event.key == pygame.K_n and self.env_kind == "composition":
+                    self._menu_mode = "models"
                 elif event.key == pygame.K_p:
                     self.paused = not self.paused
                 elif event.key in _SPEED_KEYS:
@@ -278,6 +419,55 @@ class TrainingDashboard:
                 elif event.key == pygame.K_r:
                     for index, panel in enumerate(self._panels):
                         panel.restart(seed=1000 + index)
+
+    def _move_menu_selection(self, direction: int) -> None:
+        if self._menu_mode == "params" and self._parameter_menu is not None:
+            self._parameter_menu.move(direction)
+        elif self._menu_mode == "models" and self._model_menu is not None:
+            self._model_menu.move(direction)
+
+    def _adjust_menu(self, direction: int) -> None:
+        if self._menu_mode == "params" and self._parameter_menu is not None:
+            if self._parameter_menu.adjust(direction):
+                self._rebuild_composition()
+        elif self._menu_mode == "models" and self._model_menu is not None:
+            self._model_menu.cycle(self._model_menu.role(), direction)
+            self._reload_composition()
+
+    def _draw_menu(self) -> None:
+        row_height = 24
+        visible_rows = 14
+        if self._menu_mode == "params" and self._parameter_menu is not None:
+            title = "PARÁMETROS  ↑/↓ elegir · ←/→ ajustar · M/Esc cerrar"
+            lines = [
+                self._parameter_menu.label(index)
+                for index in range(len(self._parameter_menu.entries))
+            ]
+            selected = self._parameter_menu.index
+        elif self._model_menu is not None:
+            title = "MODELOS  ↑/↓ rol · ←/→ modelo · N/Esc cerrar"
+            roles = list(self._model_menu.options)
+            lines = [
+                f"{role}: {self._model_menu.current(role).label}" for role in roles
+            ]
+            selected = self._model_menu.index
+        else:
+            return
+        start = max(0, min(selected - visible_rows // 2, max(0, len(lines) - visible_rows)))
+        window = lines[start : start + visible_rows]
+        height = (len(window) + 2) * row_height + 16
+        rect = pygame.Rect(40, 40, 660, height)
+        overlay = pygame.Surface(rect.size, pygame.SRCALPHA)
+        overlay.fill((10, 14, 18, 235))
+        self.screen.blit(overlay, rect.topleft)
+        pygame.draw.rect(self.screen, (90, 150, 220), rect, 2)
+        title_image = self.font.render(title, True, (255, 235, 150))
+        self.screen.blit(title_image, (rect.x + 12, rect.y + 8))
+        for row, line in enumerate(window):
+            index = start + row
+            color = (255, 255, 255) if index == selected else (200, 205, 210)
+            image = self.font.render(line, True, color)
+            self.screen.blit(image, (rect.x + 24, rect.y + 34 + row * row_height))
 
     def run(self) -> None:
         """Run the dashboard until the window closes."""
@@ -318,6 +508,8 @@ class TrainingDashboard:
             self._draw_panel(rect, panel)
             pygame.draw.rect(self.screen, (60, 66, 72), rect, 1)
         self._draw_metrics()
+        if self._menu_mode is not None:
+            self._draw_menu()
         pygame.display.flip()
 
     def _draw_panel(self, rect: pygame.Rect, panel: DemoPanel | DriveDemoPanel) -> None:
@@ -334,7 +526,7 @@ class TrainingDashboard:
         view = ViewTransform(field, rect.width, content_height - title_height, margin=margin)
         state = panel.play.state
         draw_field(field_surface, view)
-        if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel)):
+        if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel, CompositionDemoPanel)):
             drive_state = panel.drive.state
             goal_line = panel.drive.drive_config.goal_line
             first_down = min(drive_state.los + drive_state.distance, goal_line)
@@ -353,7 +545,15 @@ class TrainingDashboard:
             highlight,
         )
         draw_ball(field_surface, state, view)
-        if isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel)):
+        if isinstance(panel, CompositionDemoPanel):
+            label = panel.last_outcome or panel.down_label
+            percentage = 100.0 * panel.touchdowns / panel.drives if panel.drives else 0.0
+            title = self.font.render(
+                f"{label}  TD {percentage:0.0f}%",
+                True,
+                (240, 240, 240),
+            )
+        elif isinstance(panel, (DriveDemoPanel, RoleDriveDemoPanel)):
             label = panel.last_outcome or panel.down_label
             title = self.font.render(
                 f"{label}  TD {panel.touchdown_pct:0.0f}%",
@@ -395,7 +595,21 @@ class TrainingDashboard:
             f"ep_rew_mean: {reward:0.3f}",
             self.checkpoint_status(),
         ]
-        if self.env_kind == "drive":
+        if self.env_kind == "composition":
+            drives = sum(panel.drives for panel in self._panels)
+            touchdowns = sum(panel.touchdowns for panel in self._panels)
+            points = sum(panel.points for panel in self._panels)
+            first_downs = sum(panel.first_downs for panel in self._panels)
+            lines.extend(
+                (
+                    f"drives: {drives}",
+                    f"TD: {touchdowns} "
+                    f"({100.0 * touchdowns / drives if drives else 0.0:0.0f}%)",
+                    f"puntos/drive: {points / drives if drives else 0.0:0.3f}",
+                    f"1er downs/drive: {first_downs / drives if drives else 0.0:0.2f}",
+                )
+            )
+        elif self.env_kind == "drive":
             drives = sum(panel.drives for panel in self._panels)
             touchdowns = sum(panel.touchdowns for panel in self._panels)
             points = sum(panel.points for panel in self._panels)
@@ -438,7 +652,10 @@ class TrainingDashboard:
             completed = sum(panel.completed for panel in self._panels)
             completion = 100.0 * completed / finished if finished else 0.0
             lines.append(f"completados: {completion:0.1f}%  ({finished} jugadas)")
-        lines.extend(("", "←/→ checkpoint | L vivo | P pausa | 1/2/3 | R | Esc"))
+        controls = "←/→ checkpoint | L vivo | P pausa | 1/2/3 | R | Esc"
+        if self.env_kind == "composition":
+            controls = "M parámetros | N modelos | P pausa | 1/2/3 | R | Esc"
+        lines.extend(("", controls))
         for index, line in enumerate(lines):
             image = self.font.render(line, True, (228, 232, 236))
             self.screen.blit(image, (rect.x + 14, 14 + index * 24))
