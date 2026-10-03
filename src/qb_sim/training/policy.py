@@ -39,7 +39,7 @@ class PolicyQuarterback:
 
 
 class DrivePolicyQuarterback:
-    """Drive-aware callable backed by a PPO model trained on the 57-float layout."""
+    """Drive-aware callable backed by a PPO model trained on the 61-float layout."""
 
     def __init__(
         self,

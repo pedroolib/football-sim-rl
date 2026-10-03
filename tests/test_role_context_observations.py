@@ -86,6 +86,29 @@ def test_receiver_context_uses_the_provided_start() -> None:
     assert observation[30] == pytest.approx(1.0)
 
 
+def test_receiver_context_encodes_capabilities() -> None:
+    play = Play()
+    observation = receiver_context_observation(play.state, "wr1", play.config, RouteName.POST)
+
+    assert observation[31] == pytest.approx(play.config.receiver_speed / 10.0)
+    assert observation[32] == pytest.approx(play.config.defender_speed / 10.0)
+    assert observation[33] == pytest.approx(play.config.throw_max_range / 50.0)
+    assert observation[34] == pytest.approx(play.config.quarterback_speed / 10.0)
+
+
+def test_defender_context_encodes_capabilities_and_last_throw() -> None:
+    play = Play()
+    drive_state = DriveState(los=40.0)
+    drive_state.last_throw_distance = 20.0
+    observation = defender_context_observation(
+        play.state, "cb1", "wr1", play.config, drive_state
+    )
+
+    assert observation[24] == pytest.approx(play.config.defender_speed / 10.0)
+    assert observation[25] == pytest.approx(play.config.receiver_speed / 10.0)
+    assert observation[26] == pytest.approx(20.0 / 50.0)
+
+
 def test_defender_context_observation_has_the_documented_size_and_range() -> None:
     play = Play()
     observation = defender_context_observation(

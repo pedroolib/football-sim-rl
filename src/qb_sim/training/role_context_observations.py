@@ -1,14 +1,16 @@
-"""Context-enriched role observations for Stage B (WR 31, defenders 24).
+"""Context-enriched role observations for Stage B (WR 35, defenders 27).
 
 WR layout: 19 base + route one-hot (8) + yards to the goal line + next-waypoint
-delta (length and width) + capped distance to that waypoint.
-Defender layout: 19 base + down one-hot (3) + distance/40 + yards to the goal line.
+delta (length and width) + capped distance to that waypoint + own speed, nearest
+defender speed, QB throw range, and QB speed.
+Defender layout: 19 base + down one-hot (3) + distance/40 + yards to the goal
+line + own speed, target speed, and the last throw distance.
 """
 
 import numpy as np
 
 from qb_sim.config import SimulationConfig
-from qb_sim.engine.entities import PlayState
+from qb_sim.engine.entities import PlayerState, PlayState, Role
 from qb_sim.engine.geometry import Vector2, vec2
 from qb_sim.rules.drive import DriveState
 from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER, RouteName, build_route
@@ -17,10 +19,11 @@ from qb_sim.training.role_observations import (
     receiver_observation,
 )
 
-RECEIVER_CONTEXT_OBSERVATION_SIZE = 19 + len(ROUTE_OBSERVATION_ORDER) + 1 + 3
-DEFENDER_CONTEXT_OBSERVATION_SIZE = 19 + 3 + 2
+RECEIVER_CONTEXT_OBSERVATION_SIZE = 19 + len(ROUTE_OBSERVATION_ORDER) + 1 + 3 + 4
+DEFENDER_CONTEXT_OBSERVATION_SIZE = 19 + 3 + 2 + 3
 DISTANCE_SCALE = 40.0
 WAYPOINT_DISTANCE_SCALE = 10.0
+LAST_THROW_DISTANCE_SCALE = 50.0
 
 
 def _next_route_waypoint(
@@ -45,6 +48,34 @@ def _next_route_waypoint(
             return waypoint
         previous = waypoint
     return built.waypoints[-1]
+
+
+def _player_speed(player: PlayerState, config: SimulationConfig) -> float:
+    if player.max_speed > 0.0:
+        return player.max_speed
+    if player.role is Role.QUARTERBACK:
+        return config.quarterback_speed
+    if player.role is Role.RECEIVER:
+        return config.receiver_speed
+    return config.defender_speed
+
+
+def _nearest_defender_speed(
+    state: PlayState, player_id: str, config: SimulationConfig
+) -> float:
+    player = state.player(player_id)
+    nearest: PlayerState | None = None
+    nearest_distance = float("inf")
+    for candidate in state.players:
+        if candidate.role is not Role.DEFENDER:
+            continue
+        distance = float(np.linalg.norm(candidate.position - player.position))
+        if distance < nearest_distance:
+            nearest_distance = distance
+            nearest = candidate
+    if nearest is None:
+        return 0.0
+    return _player_speed(nearest, config)
 
 
 def receiver_context_observation(
@@ -87,6 +118,14 @@ def receiver_context_observation(
                     / WAYPOINT_DISTANCE_SCALE,
                 )
             )
+    values.extend(
+        (
+            _player_speed(state.player(player_id), config) / 10.0,
+            _nearest_defender_speed(state, player_id, config) / 10.0,
+            config.throw_max_range / 50.0,
+            config.quarterback_speed / 10.0,
+        )
+    )
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
 
 
@@ -107,4 +146,12 @@ def defender_context_observation(
     values.extend(1.0 if down == index else 0.0 for index in range(1, 4))
     values.append(min(float(drive_state.distance), DISTANCE_SCALE) / DISTANCE_SCALE)
     values.append((float(goal_line) - float(drive_state.los)) / float(goal_line))
+    target = state.player(target_id) if target_id is not None else None
+    values.extend(
+        (
+            _player_speed(state.player(player_id), config) / 10.0,
+            (_player_speed(target, config) / 10.0) if target is not None else 0.0,
+            (drive_state.last_throw_distance or 0.0) / LAST_THROW_DISTANCE_SCALE,
+        )
+    )
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)

@@ -68,3 +68,14 @@ def test_missing_receiver_slots_are_zeroed() -> None:
 
     assert float(observation[36:44].sum()) == pytest.approx(1.0)
     assert observation[44:52].tolist() == [0.0] * 8
+
+
+def test_qb_observation_encodes_own_capabilities_and_advantage() -> None:
+    play = Play()
+    state = _observation()  # existing helper building a 61-float observation
+
+    assert state[57] == pytest.approx(play.config.quarterback_speed / 10.0)
+    assert state[58] == pytest.approx(play.config.throw_max_range / 50.0)
+    assert state[59] == pytest.approx(play.config.throw_base_sigma_degrees / 5.0)
+    expected = max(0.0, play.config.receiver_speed - play.config.defender_speed) / 2.0
+    assert state[60] == pytest.approx(expected)

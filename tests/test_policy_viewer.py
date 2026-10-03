@@ -78,14 +78,14 @@ class _RecordingModel:
         return self._action, None
 
 
-def test_receiver_policy_builds_the_31_float_observation() -> None:
+def test_receiver_policy_builds_the_35_float_observation() -> None:
     play = Play()
     model = _RecordingModel([1.0, 0.0])
     policy = ReceiverPolicy(model, play.config, "wr1")
 
     action = policy(play.state, RouteName.POST)
 
-    assert model.observation_shape == (31,)
+    assert model.observation_shape == (35,)
     assert action is not None
     assert action.direction.tolist() == pytest.approx([1.0, 0.0])
 
@@ -103,13 +103,13 @@ def test_receiver_policy_forwards_the_start_override() -> None:
     assert model.observation[30] == pytest.approx(1.0)
 
 
-def test_defender_policy_builds_the_24_float_observation() -> None:
+def test_defender_policy_builds_the_27_float_observation() -> None:
     play = Play()
     model = _RecordingModel([0.0, 1.0])
     policy = DefenderPolicy(model, play.config, "cb1")
 
     action = policy(play.state, "wr1", DriveState(los=40.0))
 
-    assert model.observation_shape == (24,)
+    assert model.observation_shape == (27,)
     assert action is not None
     assert action.direction.tolist() == pytest.approx([0.0, 1.0])

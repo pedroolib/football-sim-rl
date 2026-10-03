@@ -2,7 +2,7 @@
 
 The quarterback is the learning agent; receivers, corners, and rushers use the
 M3 rule controllers with the drive's sampled routes. The observation is the
-57-float drive layout and the action is the same 6-value hybrid action.
+61-float drive layout and the action is the same 6-value hybrid action.
 """
 
 from collections.abc import Mapping

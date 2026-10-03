@@ -9,6 +9,7 @@ from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.routes import RouteName
 from qb_sim.training.rewards import DefenderRewardConfig, defender_potential
 from qb_sim.training.role_context_observations import (
+    DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
     receiver_context_observation,
 )
@@ -259,7 +260,7 @@ def test_role_drive_spaces_and_checker() -> None:
     )
     observation, info = env.reset(seed=0)
 
-    assert env.observation_space.shape == (24,)
+    assert env.observation_space.shape == (DEFENDER_CONTEXT_OBSERVATION_SIZE,)
     assert env.observation_space.contains(observation)
     assert info["down"] == 1
 

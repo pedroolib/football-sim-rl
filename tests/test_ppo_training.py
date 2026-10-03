@@ -246,6 +246,8 @@ def test_role_play_training_smoke(tmp_path) -> None:
 
 
 def test_role_drive_training_smoke(tmp_path) -> None:
+    from qb_sim.training.role_context_observations import DEFENDER_CONTEXT_OBSERVATION_SIZE
+
     config = PPOConfig(
         run_name="role-drive-run",
         env_kind="role_drive",
@@ -269,7 +271,7 @@ def test_role_drive_training_smoke(tmp_path) -> None:
     _, final_path = train(config)
 
     metadata = json.loads((tmp_path / "role-drive-run" / "config.json").read_text())
-    assert metadata["observation_size"] == 24
+    assert metadata["observation_size"] == DEFENDER_CONTEXT_OBSERVATION_SIZE
     assert metadata["learner"] == "cb1"
 
 
