@@ -186,9 +186,8 @@ def evaluate_league(state: dict[str, str], config: LeagueConfig) -> dict:
         player_id: policy for player_id, policy in policies.items() if player_id != "qb"
     }
     learned_env = QBDriveEnv(scenario, opponents=learned_opponents)
-    learned_results = [
-        run_composition_episode(learned_env, PPOActionPolicy(state["qb"]), seed) for seed in seeds
-    ]
+    qb_policy = PPOActionPolicy(state["qb"])
+    learned_results = [run_composition_episode(learned_env, qb_policy, seed) for seed in seeds]
     learned_env.close()
 
     rules_env = QBDriveEnv(scenario, opponents={})

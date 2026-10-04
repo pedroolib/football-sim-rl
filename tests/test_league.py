@@ -353,6 +353,39 @@ def test_evaluate_league_runs_learned_and_rule_compositions(monkeypatch) -> None
     assert [len(batch) for batch in summaries] == [2, 2]
 
 
+def test_evaluate_league_reuses_one_qb_policy_per_call(monkeypatch) -> None:
+    created = []
+
+    class CountingPolicy:
+        def __init__(self, path):
+            created.append(path)
+
+        def __call__(self, env, observation):
+            return np.zeros(6, dtype=np.float32)
+
+    class FakeEnv:
+        def __init__(self, scenario, opponents=None):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(league, "PPOActionPolicy", CountingPolicy)
+    monkeypatch.setattr(league, "QBDriveEnv", FakeEnv)
+    monkeypatch.setattr(league, "RuleQuarterbackPolicy", lambda config: object())
+    monkeypatch.setattr(league, "load_role_policies", lambda state, name: {})
+    monkeypatch.setattr(league, "run_composition_episode", lambda env, policy, seed: {"fake": True})
+    monkeypatch.setattr(league, "summarize_composition", lambda results: {"points_per_drive": 1.0})
+
+    first = {"qb": "first.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
+    second = {"qb": "second.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
+
+    evaluate_league(first, LeagueConfig(eval_episodes=3, eval_seed_start=0))
+    evaluate_league(second, LeagueConfig(eval_episodes=3, eval_seed_start=0))
+
+    assert created == ["first.zip", "second.zip"]
+
+
 def test_league_row_records_metrics_and_improvement() -> None:
     learned = {"points_per_drive": 2.0, "touchdown_pct": 30.0}
     rules = {"points_per_drive": 1.5, "touchdown_pct": 20.0}
