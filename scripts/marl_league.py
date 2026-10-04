@@ -19,6 +19,9 @@ supported here (it is rejected before training starts).
 import argparse
 import csv
 import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +61,38 @@ def build_pools(state: dict, root: Path, pool_size: int) -> dict[str, SnapshotPo
         pool.add(state["models"][role])
         pools[player_id] = pool
     return pools
+
+
+def _restore_env(name: str, previous: str | None) -> None:
+    if previous is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = previous
+
+
+@contextmanager
+def _cpu_process_env(device: str) -> Iterator[None]:
+    """Force a CPU-only, fork-safe process environment for league rounds.
+
+    League rounds use a forked ``SubprocVecEnv``:
+    (1) opponent models are loaded with ``device="auto"`` (hardcoded in the
+    policy adapters), so any CUDA initialization in the parent makes every
+    forked worker raise "Cannot re-initialize CUDA in forked subprocess";
+    hiding the devices keeps the whole process, including workers, on CPU.
+    (2) forking a parent that already used PyTorch's OpenMP threadpool can
+    deadlock on the next round, so the workers run single-threaded.
+    """
+    previous_cuda = os.environ.get("CUDA_VISIBLE_DEVICES")
+    previous_omp = os.environ.get("OMP_NUM_THREADS")
+    if device == "cpu":
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+        os.environ["OMP_NUM_THREADS"] = "1"
+    try:
+        yield
+    finally:
+        if device == "cpu":
+            _restore_env("CUDA_VISIBLE_DEVICES", previous_cuda)
+            _restore_env("OMP_NUM_THREADS", previous_omp)
 
 
 def _load_state(path: Path, base_models: dict[str, str], table_path: Path) -> dict:
@@ -126,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--n-steps", type=int, default=defaults.n_steps)
     parser.add_argument("--eval-episodes", type=int, default=defaults.eval_episodes)
     parser.add_argument("--seed-start", type=int, default=defaults.eval_seed_start)
+    parser.add_argument("--device", default=defaults.device)
     parser.add_argument("--output", default=defaults.output)
     parser.add_argument(
         "--base",
@@ -151,57 +187,59 @@ def main(argv: list[str] | None = None) -> int:
         n_steps=args.n_steps,
         eval_episodes=args.eval_episodes,
         eval_seed_start=args.seed_start,
+        device=args.device,
         output=args.output,
     )
 
-    output = Path(config.output)
-    output.mkdir(parents=True, exist_ok=True)
-    state_path = Path(args.resume) if args.resume else output / "league_state.json"
-    base_models = dict(DEFAULT_BASE)
-    if args.base is not None:
-        base_models.update(json.loads(Path(args.base).read_text(encoding="utf-8")))
-    default_table = output / "league_table.json"
-    state = _load_state(state_path, base_models, default_table)
-    for role in ("qb", "wr", "cb", "ru"):
-        model = state["models"].get(role)
-        if not isinstance(model, str) or not Path(model).is_file():
-            parser.error(f"invalid model path for {role}: {model!r}")
-    table_path = Path(state.get("table", default_table))
-    state["table"] = str(table_path)
-    rows = _load_rows(table_path)
-    previous_points = float(rows[-1]["learned"]["points_per_drive"]) if rows else None
-    stalled = int(state.get("stalled", 0))
-    round_index = int(state.get("round", 0))
+    with _cpu_process_env(config.device):
+        output = Path(config.output)
+        output.mkdir(parents=True, exist_ok=True)
+        state_path = Path(args.resume) if args.resume else output / "league_state.json"
+        base_models = dict(DEFAULT_BASE)
+        if args.base is not None:
+            base_models.update(json.loads(Path(args.base).read_text(encoding="utf-8")))
+        default_table = output / "league_table.json"
+        state = _load_state(state_path, base_models, default_table)
+        for role in ("qb", "wr", "cb", "ru"):
+            model = state["models"].get(role)
+            if not isinstance(model, str) or not Path(model).is_file():
+                parser.error(f"invalid model path for {role}: {model!r}")
+        table_path = Path(state.get("table", default_table))
+        state["table"] = str(table_path)
+        rows = _load_rows(table_path)
+        previous_points = float(rows[-1]["learned"]["points_per_drive"]) if rows else None
+        stalled = int(state.get("stalled", 0))
+        round_index = int(state.get("round", 0))
 
-    while round_index < config.rounds:
-        role = rotation[round_index % len(rotation)]
-        rng = np.random.default_rng(config.seed + round_index)
-        pools = build_pools(state, output / "pools", config.pool_size)
-        opponents = opponent_spec(role, pools, rng)
-        final_path = train_round(role, config, opponents, round_index)
-        state["models"][role] = str(final_path)
-        report = evaluate_league(state["models"], config)
-        row = league_row(
-            round_index,
-            role,
-            opponents,
-            report["learned"],
-            report["rules"],
-            previous_points,
-        )
-        rows.append(row)
-        previous_points = report["learned"]["points_per_drive"]
-        state["round"] = round_index + 1
-        stalled = 0 if row["improved"] else stalled + 1
-        state["stalled"] = stalled
-        write_table(table_path, rows)
-        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-        _print_row(row)
+        while round_index < config.rounds:
+            role = rotation[round_index % len(rotation)]
+            rng = np.random.default_rng(config.seed + round_index)
+            pools = build_pools(state, output / "pools", config.pool_size)
+            opponents = opponent_spec(role, pools, rng)
+            final_path = train_round(role, config, opponents, round_index)
+            state["models"][role] = str(final_path)
+            report = evaluate_league(state["models"], config)
+            row = league_row(
+                round_index,
+                role,
+                opponents,
+                report["learned"],
+                report["rules"],
+                previous_points,
+            )
+            rows.append(row)
+            previous_points = report["learned"]["points_per_drive"]
+            state["round"] = round_index + 1
+            stalled = 0 if row["improved"] else stalled + 1
+            state["stalled"] = stalled
+            write_table(table_path, rows)
+            state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+            _print_row(row)
 
-        round_index += 1
-        if not row["improved"] and stalled >= config.patience:
-            print(f"sin mejora tras {config.patience} rondas; deteniendo la liga")
-            break
+            round_index += 1
+            if not row["improved"] and stalled >= config.patience:
+                print(f"sin mejora tras {config.patience} rondas; deteniendo la liga")
+                break
 
     return 0
 

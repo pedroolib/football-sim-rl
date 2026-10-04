@@ -118,6 +118,7 @@ def test_league_config_defaults_match_the_spec() -> None:
     assert config.n_steps == 128
     assert config.eval_episodes == 100
     assert config.eval_seed_start == 10_000
+    assert config.device == "cpu"
     assert config.output == "runs/league"
 
 
@@ -213,12 +214,31 @@ def test_train_round_builds_role_specific_ppo_configs(monkeypatch, tmp_path: Pat
         assert ppo_config.imitation_epochs == 800
         assert ppo_config.imitation_learning_rate == 1e-4
         assert ppo_config.seed == 11
-        assert ppo_config.device == "auto"
+        assert ppo_config.device == "cpu"
         assert ppo_config.n_envs == 3
         assert ppo_config.n_steps == 48
         assert ppo_config.eval_episodes == 7
         assert ppo_config.output_dir == str(tmp_path)
         assert final_path == tmp_path / f"league/r1_{role}" / "final_model.zip"
+
+
+def test_train_round_uses_the_config_device(monkeypatch, tmp_path: Path) -> None:
+    captured = []
+
+    def fake_train(ppo_config):
+        captured.append(ppo_config)
+        return None, Path(ppo_config.output_dir) / ppo_config.run_name / "final_model.zip"
+
+    monkeypatch.setattr("qb_sim.training.train.train", fake_train)
+
+    train_round(
+        "wr",
+        LeagueConfig(device="cuda:0", output=str(tmp_path)),
+        (("qb", "rules"),),
+        round_index=0,
+    )
+
+    assert captured[0].device == "cuda:0"
 
 
 def test_train_round_rejects_unknown_role(tmp_path: Path) -> None:
@@ -511,6 +531,83 @@ def test_marl_league_smoke_writes_state_and_table(tmp_path: Path, monkeypatch) -
     assert state["models"]["wr"] == json.loads(base_json.read_text(encoding="utf-8"))["wr"]
     assert set(evaluated_states[0]) == {"qb", "wr", "cb", "ru"}
     assert evaluated_states[0]["qb"] == state["models"]["qb"]
+
+
+def test_marl_league_passes_device_to_train_round(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
+    devices = []
+
+    def fake_train_round(role, config, opponents, round_index):
+        devices.append(config.device)
+        return _fake_train_round(role, config, opponents, round_index)
+
+    def fake_evaluate_league(state, config):
+        return {"learned": {"points_per_drive": 1.0}, "rules": {"points_per_drive": 1.0}}
+
+    monkeypatch.setattr(marl_league, "train_round", fake_train_round)
+    monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+
+    marl_league.main(
+        [
+            "--rounds",
+            "1",
+            "--device",
+            "cuda:0",
+            "--n-envs",
+            "1",
+            "--n-steps",
+            "64",
+            "--eval-episodes",
+            "1",
+            "--output",
+            str(tmp_path),
+            "--base",
+            str(base_json),
+        ]
+    )
+
+    assert devices == ["cuda:0"]
+
+
+def test_marl_league_forces_cpu_fork_safe_env(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
+    observed = []
+
+    def fake_train_round(role, config, opponents, round_index):
+        observed.append((os.environ.get("CUDA_VISIBLE_DEVICES"), os.environ.get("OMP_NUM_THREADS")))
+        return _fake_train_round(role, config, opponents, round_index)
+
+    def fake_evaluate_league(state, config):
+        observed.append((os.environ.get("CUDA_VISIBLE_DEVICES"), os.environ.get("OMP_NUM_THREADS")))
+        return {"learned": {"points_per_drive": 1.0}, "rules": {"points_per_drive": 1.0}}
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    monkeypatch.setattr(marl_league, "train_round", fake_train_round)
+    monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+
+    marl_league.main(
+        [
+            "--rounds",
+            "1",
+            "--n-envs",
+            "1",
+            "--n-steps",
+            "64",
+            "--eval-episodes",
+            "1",
+            "--output",
+            str(tmp_path),
+            "--base",
+            str(base_json),
+        ]
+    )
+
+    assert observed == [("", "1"), ("", "1")]
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "0"
+    assert os.environ["OMP_NUM_THREADS"] == "4"
 
 
 def test_marl_league_stops_after_patience_without_improvement(tmp_path: Path, monkeypatch) -> None:

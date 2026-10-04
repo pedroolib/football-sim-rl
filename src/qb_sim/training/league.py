@@ -53,6 +53,7 @@ class LeagueConfig:
     n_steps: int = 128
     eval_episodes: int = 100
     eval_seed_start: int = 10_000
+    device: str = "cpu"
     output: str = "runs/league"
 
     def to_dict(self) -> dict:
@@ -158,7 +159,7 @@ def train_round(
         imitation_epochs=LEAGUE_IMITATION_EPOCHS,
         imitation_learning_rate=LEAGUE_IMITATION_LEARNING_RATE,
         output_dir=config.output,
-        device="auto",
+        device=config.device,
     )
     (Path(config.output) / "league").mkdir(parents=True, exist_ok=True)
     _, final_path = train(ppo_config)
