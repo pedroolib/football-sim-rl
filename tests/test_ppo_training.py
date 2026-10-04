@@ -444,3 +444,12 @@ def test_curriculum_callback_maps_progress_to_phase() -> None:
         assert env.get_attr("_curriculum_progress") == [1.0, 1.0]
     finally:
         env.close()
+
+
+def test_build_opponents_supports_rule_agents() -> None:
+    from qb_sim.agents.rule_controllers import HeuristicQuarterback
+    from qb_sim.training.train import build_opponents
+
+    opponents = build_opponents("role_drive", "stage_b", (("qb", "rules"),))
+
+    assert isinstance(opponents["qb"], HeuristicQuarterback)

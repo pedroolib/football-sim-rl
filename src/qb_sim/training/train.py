@@ -140,6 +140,14 @@ def build_opponents(env_kind: str, scenario_name: str, pairs) -> dict:
 
     opponents: dict = {}
     for player_id, path in pairs:
+        if path == "rules":
+            from qb_sim.agents.rule_controllers import HeuristicQuarterback
+
+            opponents[player_id] = HeuristicQuarterback(
+                player_id,
+                get_scenario(scenario_name).config,
+            )
+            continue
         if player_id == "qb":
             loader = load_policy if env_kind == "passing" else load_drive_policy
             opponents[player_id] = loader(path, scenario_name)
@@ -431,7 +439,10 @@ def main(argv: list[str] | None = None) -> None:
         action="append",
         default=[],
         metavar="ID=PATH",
-        help="Frozen opponent policy, e.g. qb=runs/ppo/final_model.zip. Repeatable.",
+        help=(
+            "Frozen opponent policy, e.g. qb=runs/ppo/final_model.zip, or ID=rules "
+            "for a rule agent. Repeatable."
+        ),
     )
     parser.add_argument(
         "--randomize-config",
