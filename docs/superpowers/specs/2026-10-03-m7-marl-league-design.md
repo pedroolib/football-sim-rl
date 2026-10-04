@@ -61,7 +61,7 @@ population-based opponent sampling):
   (`qb_sim.training.train.train`) with the appropriate `PPOConfig`
   (`env_kind`, `learner`, `opponents`, `n_envs`, `n_steps`, BC settings) and
   returns the final model path; the run name is
-  `league/r<round>_<role>` (e.g., `runs/league/r1_wr`).
+  `league/r<round>_<role>` (e.g., `runs/league/league/r1_wr` with the default output).
 - `evaluate_league(state, config)`: builds the learned composition opponents
   from `state` and runs `run_composition_episode` over fixed seeds for the
   learned policies and the rule baseline; returns the summary rows.
