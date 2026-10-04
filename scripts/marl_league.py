@@ -10,6 +10,10 @@ Each round trains one role (rotation) against one sampled snapshot per opponent
 player id, evaluates the learned composition and the rule baseline on the same
 fixed seeds, appends a league table row, and saves the new snapshot. The state
 is written to ``<output>/league_state.json`` and can be resumed with ``--resume``.
+
+``--base`` and any resumed state must point at existing model files: the league
+evaluator loads every role with ``PPO.load``, so the ``rules`` sentinel is not
+supported here (it is rejected before training starts).
 """
 
 import argparse
@@ -45,53 +49,21 @@ ROLE_BY_PLAYER: dict[str, str] = {
     "ru1": "ru",
 }
 
-RULES = "rules"
-
-
-def _is_rules(model_path: str) -> bool:
-    """Whether a state model path is the rule-controller sentinel."""
-    return str(model_path).strip().lower() == RULES
-
 
 def build_pools(state: dict, root: Path, pool_size: int) -> dict[str, SnapshotPool]:
     """Create one snapshot pool per player id, seeded with the current model."""
     pools: dict[str, SnapshotPool] = {}
     for player_id, role in ROLE_BY_PLAYER.items():
         pool = SnapshotPool(root / player_id, pool_size=pool_size)
-        model = state["models"][role]
-        if not _is_rules(model):
-            pool.add(model)
+        pool.add(state["models"][role])
         pools[player_id] = pool
     return pools
-
-
-def sample_opponents(
-    role: str,
-    state: dict,
-    pools: dict[str, SnapshotPool],
-    rng: np.random.Generator,
-) -> tuple[tuple[str, str], ...]:
-    """Sample one opponent snapshot per player id for the trained role."""
-    required = ROLE_OPPONENTS[role]
-    rule_ids = [pid for pid in required if _is_rules(state["models"][ROLE_BY_PLAYER[pid]])]
-    if not rule_ids:
-        return opponent_spec(role, pools, rng)
-    pairs: list[tuple[str, str]] = []
-    for player_id in required:
-        if player_id in rule_ids:
-            pairs.append((player_id, RULES))
-        else:
-            snapshot = pools[player_id].sample(rng)
-            if snapshot is None:
-                raise ValueError(f"empty snapshot pool for opponent {player_id!r}")
-            pairs.append((player_id, str(snapshot)))
-    return tuple(pairs)
 
 
 def _load_state(path: Path, base_models: dict[str, str], table_path: Path) -> dict:
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
-    return {"round": 0, "models": dict(base_models), "table": str(table_path)}
+    return {"round": 0, "models": dict(base_models), "table": str(table_path), "stalled": 0}
 
 
 def _load_rows(table_path: Path) -> list[dict]:
@@ -155,13 +127,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--eval-episodes", type=int, default=defaults.eval_episodes)
     parser.add_argument("--seed-start", type=int, default=defaults.eval_seed_start)
     parser.add_argument("--output", default=defaults.output)
-    parser.add_argument("--base", default=None, help="JSON mapping role -> model path")
+    parser.add_argument(
+        "--base",
+        default=None,
+        help="JSON mapping role -> existing model path ('rules' is not supported)",
+    )
     parser.add_argument("--resume", default=None, help="league state JSON to continue from")
     args = parser.parse_args(argv)
 
     rotation = tuple(part.strip() for part in args.rotation.split(",") if part.strip())
     if not rotation:
         parser.error("--rotation must contain at least one role")
+    unknown_roles = [role for role in rotation if role not in ROLE_OPPONENTS]
+    if unknown_roles:
+        parser.error(f"unknown rotation roles: {', '.join(unknown_roles)}")
     config = LeagueConfig(
         rounds=args.rounds,
         steps=args.steps,
@@ -183,18 +162,22 @@ def main(argv: list[str] | None = None) -> int:
         base_models.update(json.loads(Path(args.base).read_text(encoding="utf-8")))
     default_table = output / "league_table.json"
     state = _load_state(state_path, base_models, default_table)
+    for role in ("qb", "wr", "cb", "ru"):
+        model = state["models"].get(role)
+        if not isinstance(model, str) or not Path(model).is_file():
+            parser.error(f"invalid model path for {role}: {model!r}")
     table_path = Path(state.get("table", default_table))
     state["table"] = str(table_path)
     rows = _load_rows(table_path)
     previous_points = float(rows[-1]["learned"]["points_per_drive"]) if rows else None
-    stalled = 0
+    stalled = int(state.get("stalled", 0))
     round_index = int(state.get("round", 0))
 
     while round_index < config.rounds:
         role = rotation[round_index % len(rotation)]
         rng = np.random.default_rng(config.seed + round_index)
         pools = build_pools(state, output / "pools", config.pool_size)
-        opponents = sample_opponents(role, state, pools, rng)
+        opponents = opponent_spec(role, pools, rng)
         final_path = train_round(role, config, opponents, round_index)
         state["models"][role] = str(final_path)
         report = evaluate_league(state["models"], config)
@@ -209,18 +192,16 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(row)
         previous_points = report["learned"]["points_per_drive"]
         state["round"] = round_index + 1
+        stalled = 0 if row["improved"] else stalled + 1
+        state["stalled"] = stalled
         write_table(table_path, rows)
         state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         _print_row(row)
 
         round_index += 1
-        if row["improved"]:
-            stalled = 0
-        else:
-            stalled += 1
-            if stalled >= config.patience:
-                print(f"sin mejora tras {config.patience} rondas; deteniendo la liga")
-                break
+        if not row["improved"] and stalled >= config.patience:
+            print(f"sin mejora tras {config.patience} rondas; deteniendo la liga")
+            break
 
     return 0
 

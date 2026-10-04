@@ -574,39 +574,90 @@ def test_marl_league_resumes_from_existing_state(tmp_path: Path, monkeypatch) ->
     assert state["round"] == 2
 
 
-def test_marl_league_pins_rules_base_to_rule_opponents(tmp_path: Path, monkeypatch) -> None:
+def test_marl_league_rejects_invalid_base_before_training(tmp_path: Path, monkeypatch) -> None:
     marl_league = _load_marl_league()
-    base_json = tmp_path / "rules_base.json"
-    base_json.write_text(json.dumps({role: "rules" for role in ("qb", "wr", "cb", "ru")}))
+
+    def fail_train_round(*args, **kwargs):
+        raise AssertionError("training must not start with an invalid base")
+
+    monkeypatch.setattr(marl_league, "train_round", fail_train_round)
+    rules_base = tmp_path / "rules_base.json"
+    rules_base.write_text(json.dumps({role: "rules" for role in ("qb", "wr", "cb", "ru")}))
+    missing_base = tmp_path / "missing_base.json"
+    missing_base.write_text(
+        json.dumps(
+            {role: str(tmp_path / f"missing_{role}.zip") for role in ("qb", "wr", "cb", "ru")}
+        )
+    )
+
+    for base_json in (rules_base, missing_base):
+        with pytest.raises(SystemExit):
+            marl_league.main(
+                [
+                    "--rounds",
+                    "1",
+                    "--n-envs",
+                    "1",
+                    "--n-steps",
+                    "64",
+                    "--eval-episodes",
+                    "1",
+                    "--output",
+                    str(tmp_path),
+                    "--base",
+                    str(base_json),
+                ]
+            )
+
+    assert not (tmp_path / "league").exists()
+
+
+def test_marl_league_rejects_unknown_rotation_role(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
+
+    def fail_train_round(*args, **kwargs):
+        raise AssertionError("training must not start with an unknown rotation role")
+
+    monkeypatch.setattr(marl_league, "train_round", fail_train_round)
+
+    with pytest.raises(SystemExit):
+        marl_league.main(
+            [
+                "--rotation",
+                "qb,linebacker",
+                "--rounds",
+                "1",
+                "--output",
+                str(tmp_path),
+                "--base",
+                str(base_json),
+            ]
+        )
+
+    assert not (tmp_path / "league").exists()
+
+
+def test_marl_league_restores_stalled_on_resume(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
 
     def fake_evaluate_league(state, config):
-        return {"learned": {"points_per_drive": 2.0}, "rules": {"points_per_drive": 1.0}}
+        return {"learned": {"points_per_drive": 1.0}, "rules": {"points_per_drive": 1.0}}
 
     monkeypatch.setattr(marl_league, "train_round", _fake_train_round)
     monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+    common = ["--n-envs", "1", "--n-steps", "64", "--eval-episodes", "1", "--output", str(tmp_path)]
 
-    marl_league.main(
-        [
-            "--rounds",
-            "1",
-            "--n-envs",
-            "1",
-            "--n-steps",
-            "64",
-            "--eval-episodes",
-            "1",
-            "--output",
-            str(tmp_path),
-            "--base",
-            str(base_json),
-        ]
-    )
+    marl_league.main(["--rounds", "2", "--base", str(base_json), *common])
+    state_path = tmp_path / "league_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["stalled"] == 1
+
+    marl_league.main(["--rounds", "10", "--resume", str(state_path), *common])
 
     rows = json.loads((tmp_path / "league_table.json").read_text(encoding="utf-8"))
-    assert rows[0]["opponents"] == {
-        "wr1": "rules",
-        "wr2": "rules",
-        "cb1": "rules",
-        "cb2": "rules",
-        "ru1": "rules",
-    }
+    assert [row["improved"] for row in rows] == [True, False, False]
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["stalled"] == 2
+    assert state["round"] == 3
