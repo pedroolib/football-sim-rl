@@ -17,19 +17,12 @@ from qb_sim.rules.drive import DriveState
 from qb_sim.rules.routes import RouteName
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.actions import decode_action
-from qb_sim.training.drive_observations import (
-    CAPABILITY_SLOTS as DRIVE_CAPABILITY_SLOTS,
-)
-from qb_sim.training.drive_observations import (
-    DRIVE_OBSERVATION_SIZE,
-    drive_observation_from_state,
-)
+from qb_sim.training.drive_observations import drive_observation_from_state
 from qb_sim.training.observations import OBSERVATION_SIZE, observation_from_state
 from qb_sim.training.role_context_observations import (
+    BALL_LANDING_SLOTS,
     DEFENDER_CAPABILITY_SLOTS,
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
-    RECEIVER_CAPABILITY_SLOTS,
-    RECEIVER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_DRIVE_OBSERVATION_SIZE,
     defender_context_observation,
     receiver_context_observation,
@@ -37,15 +30,8 @@ from qb_sim.training.role_context_observations import (
 )
 
 SUPPORTED_PLAY_SIZES = (OBSERVATION_SIZE,)
-SUPPORTED_DRIVE_SIZES = (
-    DRIVE_OBSERVATION_SIZE,
-    DRIVE_OBSERVATION_SIZE - DRIVE_CAPABILITY_SLOTS,
-)
-SUPPORTED_RECEIVER_SIZES = (
-    RECEIVER_DRIVE_OBSERVATION_SIZE,
-    RECEIVER_CONTEXT_OBSERVATION_SIZE,
-    RECEIVER_CONTEXT_OBSERVATION_SIZE - RECEIVER_CAPABILITY_SLOTS,
-)
+SUPPORTED_DRIVE_SIZES = (62, 61, 57)
+SUPPORTED_RECEIVER_SIZES = (43, 40, 38, 35, 31)
 SUPPORTED_DEFENDER_SIZES = (
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     DEFENDER_CONTEXT_OBSERVATION_SIZE - DEFENDER_CAPABILITY_SLOTS,
@@ -111,7 +97,7 @@ class PolicyQuarterback:
 
 
 class DrivePolicyQuarterback:
-    """Drive-aware callable backed by a PPO model trained on the 61-float layout."""
+    """Drive-aware callable backed by a PPO model trained on the 62-float layout."""
 
     def __init__(
         self,
@@ -181,8 +167,11 @@ class ReceiverPolicy:
 
     @property
     def drive_aware(self) -> bool:
-        """Whether the model was trained on the 40-value drive layout."""
-        return self._expected_size == RECEIVER_DRIVE_OBSERVATION_SIZE
+        """Whether the model was trained on a drive layout (43 or 40 values)."""
+        return self._expected_size in (
+            RECEIVER_DRIVE_OBSERVATION_SIZE,
+            RECEIVER_DRIVE_OBSERVATION_SIZE - BALL_LANDING_SLOTS,
+        )
 
     def __call__(
         self,
@@ -191,7 +180,7 @@ class ReceiverPolicy:
         start: Vector2 | None = None,
         drive_state: DriveState | None = None,
     ) -> Move | None:
-        if drive_state is not None:
+        if drive_state is not None and self.drive_aware:
             observation = receiver_drive_observation(
                 state,
                 self._player_id,

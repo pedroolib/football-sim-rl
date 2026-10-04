@@ -12,9 +12,9 @@ from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import BallStatus
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.actions import ACTION_SIZE, encode_engine_action
-from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
 from qb_sim.training.env import QBPassingEnv
 from qb_sim.training.observations import OBSERVATION_SIZE
+from qb_sim.training.policy import SUPPORTED_DRIVE_SIZES
 
 ActionFn = Callable[[QBPassingEnv, np.ndarray], np.ndarray]
 _OUTCOMES = ("completed", "interception", "incomplete", "out_of_bounds", "time_limit", "sack")
@@ -57,10 +57,13 @@ class PPOActionPolicy:
         return self.observation_size == OBSERVATION_SIZE
 
     def supports_drive_layout(self) -> bool:
-        """Whether the model was trained with the drive observation layout."""
-        return self.observation_size == DRIVE_OBSERVATION_SIZE
+        """Whether the model was trained on a supported drive layout."""
+        return self.observation_size in SUPPORTED_DRIVE_SIZES
 
     def __call__(self, env: QBPassingEnv, observation: np.ndarray) -> np.ndarray:
+        observation = np.asarray(observation, dtype=np.float32)
+        if observation.shape[0] > self.observation_size:
+            observation = observation[: self.observation_size]
         action, _ = self._model.predict(observation, deterministic=True)
         return np.asarray(action, dtype=np.float32)
 

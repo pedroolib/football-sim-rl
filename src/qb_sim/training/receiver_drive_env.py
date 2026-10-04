@@ -2,7 +2,7 @@
 
 The receiver is the learning agent; the quarterback uses the rule controller
 unless a frozen policy is supplied, and the rest of the roster uses the M3 rule
-controllers with the drive's sampled routes. The observation is the 40-float
+controllers with the drive's sampled routes. The observation is the 43-float
 receiver drive layout and the action is a 2-value movement vector.
 """
 

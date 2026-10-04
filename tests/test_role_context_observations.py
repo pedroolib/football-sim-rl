@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from qb_sim.engine.entities import BallStatus
 from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveState
 from qb_sim.rules.play import Play
@@ -8,8 +9,10 @@ from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER, RouteName
 from qb_sim.training.role_context_observations import (
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_DRIVE_OBSERVATION_SIZE,
     defender_context_observation,
     receiver_context_observation,
+    receiver_drive_observation,
 )
 
 
@@ -130,3 +133,132 @@ def test_defender_context_encodes_down_distance_and_goal() -> None:
     assert observation[19:22].tolist() == [0.0, 0.0, 1.0]
     assert observation[22] == pytest.approx(0.5)
     assert observation[23] == pytest.approx(0.6)
+
+
+def test_receiver_context_zeroes_ball_landing_features_when_held() -> None:
+    play = Play()
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.GO
+    )
+
+    assert observation[35:38].tolist() == [0.0, 0.0, 0.0]
+
+
+def test_receiver_context_zeroes_ball_landing_features_without_target() -> None:
+    play = Play()
+    play.state.ball.status = BallStatus.IN_FLIGHT
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.GO
+    )
+
+    assert observation[35:38].tolist() == [0.0, 0.0, 0.0]
+
+
+def test_receiver_context_encodes_ball_landing_offset_and_time() -> None:
+    play = Play()
+    play.state.player("wr1").position = vec2(40.0, 40.0)
+    play.state.ball.status = BallStatus.IN_FLIGHT
+    play.state.ball.position = vec2(50.0, 43.0)
+    play.state.ball.velocity = vec2(10.0, 0.0)
+    play.state.ball.target = vec2(70.0, 43.0)
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.GO
+    )
+
+    field = play.config.field
+    assert observation[35] == pytest.approx(30.0 / field.length_yards)
+    assert observation[36] == pytest.approx(3.0 / field.width_yards)
+    assert observation[37] == pytest.approx(2.0 / 3.0)
+
+
+def test_receiver_context_tracks_a_real_throw() -> None:
+    play = Play()
+    play.state.player("wr1").position = vec2(30.0, 40.0)
+    play.throw_to(vec2(70.0, 44.0), power=0.8)
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.POST
+    )
+
+    ball = play.state.ball
+    assert ball.status is BallStatus.IN_FLIGHT
+    assert ball.target is not None
+    offset = ball.target - play.state.player("wr1").position
+    travel = ball.target - ball.position
+    speed = max(float(np.linalg.norm(ball.velocity)), 1e-6)
+    assert observation[35] == pytest.approx(
+        float(offset[0]) / play.config.field.length_yards
+    )
+    assert observation[36] == pytest.approx(
+        float(offset[1]) / play.config.field.width_yards
+    )
+    assert observation[37] == pytest.approx(
+        float(np.linalg.norm(travel)) / speed / 3.0
+    )
+
+
+def test_receiver_context_ball_landing_features_are_clipped_and_finite() -> None:
+    play = Play()
+    play.state.ball.status = BallStatus.IN_FLIGHT
+    play.state.ball.position = vec2(0.0, 0.0)
+    play.state.ball.velocity = vec2(0.001, 0.0)
+    play.state.ball.target = vec2(1000.0, 0.0)
+
+    observation = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.GO
+    )
+
+    assert observation.shape == (RECEIVER_CONTEXT_OBSERVATION_SIZE,)
+    assert RECEIVER_CONTEXT_OBSERVATION_SIZE == 38
+    assert np.all(np.isfinite(observation))
+    assert np.all(observation >= -1.0)
+    assert np.all(observation <= 1.0)
+    assert observation[35] == pytest.approx(1.0)
+    assert observation[37] == pytest.approx(1.0)
+
+
+def test_receiver_drive_layout_keeps_the_legacy_drive_prefix() -> None:
+    play = Play()
+    drive_state = DriveState(los=40.0, down=3, distance=20.0)
+
+    drive = receiver_drive_observation(
+        play.state, "wr1", play.config, RouteName.POST, drive_state
+    )
+    context = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.POST
+    )
+
+    assert RECEIVER_CONTEXT_OBSERVATION_SIZE == 38
+    assert RECEIVER_DRIVE_OBSERVATION_SIZE == 43
+    assert drive.shape == (RECEIVER_DRIVE_OBSERVATION_SIZE,)
+    assert drive.dtype == np.float32
+    assert np.all(np.isfinite(drive))
+    assert np.all(drive >= -1.0)
+    assert np.all(drive <= 1.0)
+    np.testing.assert_allclose(drive[:35], context[:35])
+    assert drive[35:38].tolist() == [0.0, 0.0, 1.0]
+    assert drive[38] == pytest.approx(0.5)
+    assert drive[39] == pytest.approx(0.6)
+
+
+def test_receiver_drive_layout_appends_the_landing_features() -> None:
+    play = Play()
+    play.state.player("wr1").position = vec2(40.0, 40.0)
+    play.state.ball.status = BallStatus.IN_FLIGHT
+    play.state.ball.position = vec2(50.0, 43.0)
+    play.state.ball.velocity = vec2(10.0, 0.0)
+    play.state.ball.target = vec2(70.0, 43.0)
+    drive_state = DriveState(los=40.0)
+
+    drive = receiver_drive_observation(
+        play.state, "wr1", play.config, RouteName.POST, drive_state
+    )
+    context = receiver_context_observation(
+        play.state, "wr1", play.config, RouteName.POST
+    )
+
+    assert float(np.linalg.norm(drive[40:43])) > 0.0
+    np.testing.assert_allclose(drive[40:43], context[35:38])

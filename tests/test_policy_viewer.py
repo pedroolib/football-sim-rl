@@ -79,14 +79,14 @@ class _RecordingModel:
         return self._action, None
 
 
-def test_receiver_policy_builds_the_35_float_observation() -> None:
+def test_receiver_policy_builds_the_38_float_observation() -> None:
     play = Play()
     model = _RecordingModel([1.0, 0.0])
     policy = ReceiverPolicy(model, play.config, "wr1")
 
     action = policy(play.state, RouteName.POST)
 
-    assert model.observation_shape == (35,)
+    assert model.observation_shape == (38,)
     assert action is not None
     assert action.direction.tolist() == pytest.approx([1.0, 0.0])
 

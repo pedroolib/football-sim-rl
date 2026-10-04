@@ -72,10 +72,38 @@ def test_missing_receiver_slots_are_zeroed() -> None:
 
 def test_qb_observation_encodes_own_capabilities_and_advantage() -> None:
     play = Play()
-    state = _observation()  # existing helper building a 61-float observation
+    state = _observation()  # existing helper building a 62-float observation
 
     assert state[57] == pytest.approx(play.config.quarterback_speed / 10.0)
     assert state[58] == pytest.approx(play.config.throw_max_range / 50.0)
     assert state[59] == pytest.approx(play.config.throw_base_sigma_degrees / 5.0)
     expected = max(0.0, play.config.receiver_speed - play.config.defender_speed) / 2.0
     assert state[60] == pytest.approx(expected)
+
+
+def test_qb_los_offset_is_appended_and_signed() -> None:
+    play = Play()
+    qb_x = float(play.state.player("qb").position[0])
+    routes = (RouteName.POST, RouteName.GO)
+
+    behind = drive_observation_from_state(
+        state=play.state,
+        routes=routes,
+        drive_state=DriveState(los=qb_x + 5.0),
+        config=play.config,
+    )
+    past = drive_observation_from_state(
+        state=play.state,
+        routes=routes,
+        drive_state=DriveState(los=qb_x - 5.0),
+        config=play.config,
+    )
+
+    assert DRIVE_OBSERVATION_SIZE == 62
+    assert behind.shape == (DRIVE_OBSERVATION_SIZE,)
+    assert float(behind[-1]) == pytest.approx(
+        -5.0 / play.config.field.length_yards
+    )
+    assert float(past[-1]) == pytest.approx(
+        5.0 / play.config.field.length_yards
+    )

@@ -1,10 +1,11 @@
 """Fixed-size drive observation for the quarterback environment (v11).
 
-Layout (61 floats in ``[-1, 1]``): the 36 passing-environment values first,
+Layout (62 floats in ``[-1, 1]``): the 36 passing-environment values first,
 then route one-hots per receiver slot (8 routes each), then down one-hot (3),
-distance to the marker normalized by 40, yards to the goal line, and the QB
+distance to the marker normalized by 40, yards to the goal line, the QB
 capability block (own speed, throw range, throw base sigma, best receiver
-speed advantage).
+speed advantage), and the QB offset from the line of scrimmage (negative
+behind it, positive past it).
 """
 
 import numpy as np
@@ -21,7 +22,12 @@ DOWN_SLOTS = 3
 CAPABILITY_SLOTS = 4
 DISTANCE_SCALE = 40.0
 DRIVE_OBSERVATION_SIZE = (
-    OBSERVATION_SIZE + RECEIVER_SLOTS * ROUTE_SLOTS + DOWN_SLOTS + 2 + CAPABILITY_SLOTS
+    OBSERVATION_SIZE
+    + RECEIVER_SLOTS * ROUTE_SLOTS
+    + DOWN_SLOTS
+    + 2
+    + CAPABILITY_SLOTS
+    + 1
 )
 
 
@@ -44,6 +50,10 @@ def drive_observation_from_state(
     values.append(min(float(drive_state.distance), DISTANCE_SCALE) / DISTANCE_SCALE)
     values.append((float(goal_line) - float(drive_state.los)) / float(goal_line))
     values.extend(_capability_features(state, config))
+    values.append(
+        (float(state.player("qb").position[0]) - float(drive_state.los))
+        / config.field.length_yards
+    )
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
 
 

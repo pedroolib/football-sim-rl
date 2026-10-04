@@ -235,7 +235,7 @@ def collect_role_play_demonstrations(
     opponents: Mapping[str, object] | None = None,
     goal_line: float = 100.0,
 ) -> DemonstrationSet:
-    """Run the rule receiver and record ``(31-observation, 2-action)`` pairs."""
+    """Run the rule receiver and record ``(38-observation, 2-action)`` pairs."""
     chosen = scenario if scenario is not None else get_scenario("stage_b")
     env = RolePlayEnv(chosen, learner_id=learner_id, opponents=opponents, goal_line=goal_line)
     observations: list[np.ndarray] = []
@@ -264,7 +264,7 @@ def collect_receiver_drive_demonstrations(
     opponents: Mapping[str, object] | None = None,
     drive_config: DriveConfig | None = None,
 ) -> DemonstrationSet:
-    """Run the rule receiver and record ``(40-observation, 2-action)`` pairs."""
+    """Run the rule receiver and record ``(43-observation, 2-action)`` pairs."""
     chosen = scenario if scenario is not None else get_scenario("stage_b")
     env = ReceiverDriveEnv(
         chosen,

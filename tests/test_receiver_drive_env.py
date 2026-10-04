@@ -79,16 +79,17 @@ def test_receiver_drive_observation_extends_the_context_layout() -> None:
         play.state, "wr1", config, RouteName.POST
     )
 
-    assert RECEIVER_DRIVE_OBSERVATION_SIZE == RECEIVER_CONTEXT_OBSERVATION_SIZE + 5 == 40
+    assert RECEIVER_DRIVE_OBSERVATION_SIZE == RECEIVER_CONTEXT_OBSERVATION_SIZE + 5 == 43
     assert observation.shape == (RECEIVER_DRIVE_OBSERVATION_SIZE,)
     assert observation.dtype == np.float32
     assert np.all(np.isfinite(observation))
     assert np.all(observation >= -1.0)
     assert np.all(observation <= 1.0)
-    np.testing.assert_allclose(observation[:RECEIVER_CONTEXT_OBSERVATION_SIZE], context)
+    np.testing.assert_allclose(observation[:35], context[:35])
     assert observation[35:38].tolist() == [0.0, 0.0, 1.0]
     assert observation[38] == pytest.approx(0.5)
     assert observation[39] == pytest.approx(0.6)
+    np.testing.assert_allclose(observation[40:43], context[35:38])
 
 
 def test_receiver_drive_spaces_and_reset_contract() -> None:

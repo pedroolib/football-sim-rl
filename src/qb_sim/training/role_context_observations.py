@@ -1,10 +1,13 @@
-"""Context-enriched role observations for Stage B (WR 35, defenders 27).
+"""Context-enriched role observations for Stage B (WR 38/43, defenders 27).
 
-WR layout: 19 base + route one-hot (8) + yards to the goal line + next-waypoint
-delta (length and width) + capped distance to that waypoint + own speed, nearest
-defender speed, QB throw range, and QB speed.
-WR drive layout: the 35 WR context values + down one-hot (3), distance/40, and
-yards from the line of scrimmage to the goal line.
+WR context layout: 19 base + route one-hot (8) + yards to the goal line +
+next-waypoint delta (length and width) + capped distance to that waypoint + own
+speed, nearest defender speed, QB throw range, and QB speed (35 values), then
+the ball landing features (target offset length/width and remaining flight
+time), 38 total.
+WR drive layout: the 35 context values + down one-hot (3), distance/40, and
+yards from the line of scrimmage to the goal line, then the same 3 landing
+features, 43 total, so the legacy 40-value drive layout stays a prefix.
 Defender layout: 19 base + down one-hot (3) + distance/40 + yards to the goal
 line + own speed, target speed, and the last throw distance.
 """
@@ -12,7 +15,7 @@ line + own speed, target speed, and the last throw distance.
 import numpy as np
 
 from qb_sim.config import SimulationConfig
-from qb_sim.engine.entities import PlayerState, PlayState, Role
+from qb_sim.engine.entities import BallStatus, PlayerState, PlayState, Role
 from qb_sim.engine.geometry import Vector2, vec2
 from qb_sim.rules.drive import DriveState
 from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER, RouteName, build_route
@@ -23,14 +26,19 @@ from qb_sim.training.role_observations import (
 
 RECEIVER_CAPABILITY_SLOTS = 4
 DEFENDER_CAPABILITY_SLOTS = 3
-RECEIVER_CONTEXT_OBSERVATION_SIZE = (
+RECEIVER_BASE_OBSERVATION_SIZE = (
     19 + len(ROUTE_OBSERVATION_ORDER) + 1 + 3 + RECEIVER_CAPABILITY_SLOTS
 )
-RECEIVER_DRIVE_OBSERVATION_SIZE = RECEIVER_CONTEXT_OBSERVATION_SIZE + 5
+BALL_LANDING_SLOTS = 3
+RECEIVER_CONTEXT_OBSERVATION_SIZE = RECEIVER_BASE_OBSERVATION_SIZE + BALL_LANDING_SLOTS
+RECEIVER_DRIVE_OBSERVATION_SIZE = (
+    RECEIVER_BASE_OBSERVATION_SIZE + 5 + BALL_LANDING_SLOTS
+)
 DEFENDER_CONTEXT_OBSERVATION_SIZE = 19 + 3 + 2 + DEFENDER_CAPABILITY_SLOTS
 DISTANCE_SCALE = 40.0
 WAYPOINT_DISTANCE_SCALE = 10.0
 LAST_THROW_DISTANCE_SCALE = 50.0
+BALL_TIME_SCALE = 3.0
 
 
 def _next_route_waypoint(
@@ -92,7 +100,7 @@ def _nearest_defender_speed(
     return _player_speed(nearest, config)
 
 
-def receiver_context_observation(
+def _receiver_context_base(
     state: PlayState,
     player_id: str,
     config: SimulationConfig,
@@ -143,6 +151,51 @@ def receiver_context_observation(
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
 
 
+def _ball_landing_features(
+    state: PlayState,
+    player_id: str,
+    config: SimulationConfig,
+) -> tuple[float, float, float]:
+    """Where and when the ball will land relative to the player.
+
+    Returns the landing offset (length and width, normalized by the field) and
+    the remaining flight time scaled by ``BALL_TIME_SCALE``. All zeros when the
+    ball is not in flight or has no landing target.
+    """
+    ball = state.ball
+    if ball.status is not BallStatus.IN_FLIGHT or ball.target is None:
+        return (0.0, 0.0, 0.0)
+    target = ball.target
+    offset = target - state.player(player_id).position
+    travel = target - ball.position
+    speed = max(float(np.linalg.norm(ball.velocity)), 1e-6)
+    remaining = float(np.linalg.norm(travel)) / speed / BALL_TIME_SCALE
+    return (
+        float(offset[0]) / config.field.length_yards,
+        float(offset[1]) / config.field.width_yards,
+        remaining,
+    )
+
+
+def receiver_context_observation(
+    state: PlayState,
+    player_id: str,
+    config: SimulationConfig,
+    route: RouteName | None,
+    goal_line: float = 100.0,
+    start: Vector2 | None = None,
+) -> np.ndarray:
+    """Receiver route context plus where and when the ball will land."""
+    values = [
+        float(value)
+        for value in _receiver_context_base(
+            state, player_id, config, route, goal_line, start
+        )
+    ]
+    values.extend(_ball_landing_features(state, player_id, config))
+    return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
+
+
 def receiver_drive_observation(
     state: PlayState,
     player_id: str,
@@ -152,10 +205,14 @@ def receiver_drive_observation(
     goal_line: float = 100.0,
     start: Vector2 | None = None,
 ) -> np.ndarray:
-    """Receiver context observation plus down, distance, and field position."""
+    """Receiver context plus down, distance, field position, and ball landing.
+
+    The down/distance/goal block sits before the landing features so the legacy
+    40-value drive layout remains a prefix of the current observation.
+    """
     values = [
         float(value)
-        for value in receiver_context_observation(
+        for value in _receiver_context_base(
             state, player_id, config, route, goal_line, start
         )
     ]
@@ -163,6 +220,7 @@ def receiver_drive_observation(
     values.extend(1.0 if down == index else 0.0 for index in range(1, 4))
     values.append(min(float(drive_state.distance), DISTANCE_SCALE) / DISTANCE_SCALE)
     values.append((float(goal_line) - float(drive_state.los)) / float(goal_line))
+    values.extend(_ball_landing_features(state, player_id, config))
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
 
 

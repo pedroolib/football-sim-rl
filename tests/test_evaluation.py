@@ -1,5 +1,17 @@
-from qb_sim.rules.scenarios import get_scenario
-from qb_sim.training.evaluation import RandomPolicy, RuleQuarterbackPolicy, evaluate
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+sb3 = pytest.importorskip("stable_baselines3")
+
+from qb_sim.rules.scenarios import get_scenario  # noqa: E402
+from qb_sim.training.evaluation import (  # noqa: E402
+    PPOActionPolicy,
+    RandomPolicy,
+    RuleQuarterbackPolicy,
+    evaluate,
+)
 
 
 def test_evaluation_is_reproducible_with_fixed_seeds() -> None:
@@ -37,3 +49,25 @@ def test_rule_quarterback_completes_more_than_random() -> None:
 
     assert rules["completed_pct"] > random["completed_pct"]
     assert rules["throw_frequency"] > 0.0
+
+
+def test_ppo_action_policy_slices_legacy_drive_observations(monkeypatch) -> None:
+    seen: list[np.ndarray] = []
+
+    class FakeModel:
+        observation_space = SimpleNamespace(shape=(61,))
+
+        def predict(self, observation, deterministic=True):
+            seen.append(np.asarray(observation))
+            return np.zeros(6, dtype=np.float32), None
+
+    monkeypatch.setattr(sb3.PPO, "load", lambda path, device=None: FakeModel())
+    policy = PPOActionPolicy("legacy.zip")
+
+    assert policy.observation_size == 61
+    assert policy.supports_drive_layout() is True
+
+    policy(None, np.zeros(62, dtype=np.float32))
+
+    assert seen[0].shape == (61,)
+    assert np.array_equal(seen[0], np.zeros(61, dtype=np.float32))
