@@ -470,6 +470,8 @@ def main(argv: list[str] | None = None) -> None:
         default=defaults.imitation_learning_rate,
     )
     parser.add_argument("--n-envs", type=int, default=defaults.n_envs)
+    parser.add_argument("--n-steps", type=int, default=defaults.n_steps)
+    parser.add_argument("--batch-size", type=int, default=defaults.batch_size)
     parser.add_argument("--device", default=defaults.device)
     parser.add_argument("--resume", default=None)
     args = parser.parse_args(argv)
@@ -497,6 +499,8 @@ def main(argv: list[str] | None = None) -> None:
         seed=args.seed,
         learning_rate=args.learning_rate,
         n_envs=args.n_envs,
+        n_steps=args.n_steps,
+        batch_size=args.batch_size,
         checkpoint_freq=args.checkpoint_freq,
         eval_freq=args.eval_freq,
         eval_episodes=args.eval_episodes,
