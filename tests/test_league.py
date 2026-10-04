@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -420,3 +421,192 @@ def test_evaluate_league_with_the_b2_models() -> None:
 
     row = league_row(0, "qb", (), report["learned"], report["rules"], previous_points=None)
     assert row["improved"] is True
+
+
+def _load_marl_league():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "marl_league.py"
+    spec = importlib.util.spec_from_file_location("marl_league", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _base_json(tmp_path: Path) -> Path:
+    if B2_AVAILABLE:
+        base = {role: str(path) for role, path in B2_MODELS.items()}
+    else:
+        base = {}
+        for role in ("qb", "wr", "cb", "ru"):
+            model = tmp_path / f"base_{role}.zip"
+            model.write_bytes(b"model")
+            base[role] = str(model)
+    path = tmp_path / "base.json"
+    path.write_text(json.dumps(base), encoding="utf-8")
+    return path
+
+
+def _fake_train_round(role, config, opponents, round_index) -> Path:
+    final = Path(config.output) / f"league/r{round_index}_{role}/final_model.zip"
+    final.parent.mkdir(parents=True, exist_ok=True)
+    final.write_bytes(b"model")
+    return final
+
+
+def test_marl_league_smoke_writes_state_and_table(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
+    evaluated_states = []
+
+    def fake_evaluate_league(state, config):
+        evaluated_states.append(dict(state))
+        return {
+            "learned": {"points_per_drive": 2.0, "touchdown_pct": 50.0},
+            "rules": {"points_per_drive": 1.0, "touchdown_pct": 25.0},
+        }
+
+    monkeypatch.setattr(marl_league, "train_round", _fake_train_round)
+    monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+
+    result = marl_league.main(
+        [
+            "--rounds",
+            "1",
+            "--steps",
+            "256",
+            "--n-envs",
+            "1",
+            "--n-steps",
+            "64",
+            "--eval-episodes",
+            "1",
+            "--output",
+            str(tmp_path),
+            "--base",
+            str(base_json),
+        ]
+    )
+
+    state_path = tmp_path / "league_state.json"
+    table_path = tmp_path / "league_table.json"
+    assert result == 0
+    assert state_path.is_file()
+    assert table_path.is_file()
+    assert (tmp_path / "league_table.csv").is_file()
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    rows = json.loads(table_path.read_text(encoding="utf-8"))
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["round"] == 0
+    assert row["role"] == "qb"
+    assert set(row["opponents"]) == {"wr1", "wr2", "cb1", "cb2", "ru1"}
+    assert row["learned"] == {"points_per_drive": 2.0, "touchdown_pct": 50.0}
+    assert row["rules"] == {"points_per_drive": 1.0, "touchdown_pct": 25.0}
+    assert row["improved"] is True
+
+    assert state["round"] == 1
+    assert state["table"] == str(table_path)
+    assert state["models"]["qb"] == str(tmp_path / "league" / "r0_qb" / "final_model.zip")
+    assert state["models"]["wr"] == json.loads(base_json.read_text(encoding="utf-8"))["wr"]
+    assert set(evaluated_states[0]) == {"qb", "wr", "cb", "ru"}
+    assert evaluated_states[0]["qb"] == state["models"]["qb"]
+
+
+def test_marl_league_stops_after_patience_without_improvement(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
+    trained = []
+
+    def fake_train_round(role, config, opponents, round_index) -> Path:
+        trained.append((round_index, role))
+        return _fake_train_round(role, config, opponents, round_index)
+
+    def fake_evaluate_league(state, config):
+        return {"learned": {"points_per_drive": 1.0}, "rules": {"points_per_drive": 1.0}}
+
+    monkeypatch.setattr(marl_league, "train_round", fake_train_round)
+    monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+
+    marl_league.main(
+        [
+            "--rounds",
+            "10",
+            "--steps",
+            "256",
+            "--n-envs",
+            "1",
+            "--n-steps",
+            "64",
+            "--eval-episodes",
+            "1",
+            "--output",
+            str(tmp_path),
+            "--base",
+            str(base_json),
+        ]
+    )
+
+    rows = json.loads((tmp_path / "league_table.json").read_text(encoding="utf-8"))
+    assert [row["improved"] for row in rows] == [True, False, False]
+    assert [entry[1] for entry in trained] == ["qb", "wr", "cb"]
+    state = json.loads((tmp_path / "league_state.json").read_text(encoding="utf-8"))
+    assert state["round"] == 3
+
+
+def test_marl_league_resumes_from_existing_state(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
+
+    def fake_evaluate_league(state, config):
+        return {"learned": {"points_per_drive": 2.0}, "rules": {"points_per_drive": 1.0}}
+
+    monkeypatch.setattr(marl_league, "train_round", _fake_train_round)
+    monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+    common = ["--n-envs", "1", "--n-steps", "64", "--eval-episodes", "1", "--output", str(tmp_path)]
+
+    marl_league.main(["--rounds", "1", "--base", str(base_json), *common])
+    marl_league.main(["--rounds", "2", "--resume", str(tmp_path / "league_state.json"), *common])
+
+    rows = json.loads((tmp_path / "league_table.json").read_text(encoding="utf-8"))
+    assert [row["role"] for row in rows] == ["qb", "wr"]
+    state = json.loads((tmp_path / "league_state.json").read_text(encoding="utf-8"))
+    assert state["round"] == 2
+
+
+def test_marl_league_pins_rules_base_to_rule_opponents(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = tmp_path / "rules_base.json"
+    base_json.write_text(json.dumps({role: "rules" for role in ("qb", "wr", "cb", "ru")}))
+
+    def fake_evaluate_league(state, config):
+        return {"learned": {"points_per_drive": 2.0}, "rules": {"points_per_drive": 1.0}}
+
+    monkeypatch.setattr(marl_league, "train_round", _fake_train_round)
+    monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+
+    marl_league.main(
+        [
+            "--rounds",
+            "1",
+            "--n-envs",
+            "1",
+            "--n-steps",
+            "64",
+            "--eval-episodes",
+            "1",
+            "--output",
+            str(tmp_path),
+            "--base",
+            str(base_json),
+        ]
+    )
+
+    rows = json.loads((tmp_path / "league_table.json").read_text(encoding="utf-8"))
+    assert rows[0]["opponents"] == {
+        "wr1": "rules",
+        "wr2": "rules",
+        "cb1": "rules",
+        "cb2": "rules",
+        "ru1": "rules",
+    }
