@@ -110,6 +110,31 @@ def test_drive_demonstrations_have_expected_shapes() -> None:
     assert len(dataset.observations) > 0
 
 
+def test_drive_demonstrations_with_randomization_vary_capabilities() -> None:
+    from qb_sim.training.randomization import AdaptationRanges
+
+    dataset = collect_drive_demonstrations(
+        get_scenario("stage_b"), episodes=4, seed_start=0, randomization=AdaptationRanges()
+    )
+
+    ranges = dataset.observations[:, 58]  # throw_max_range / 50
+    assert ranges.max() > ranges.min()
+
+
+def test_drive_demonstrations_with_randomization_are_reproducible() -> None:
+    from qb_sim.training.randomization import AdaptationRanges
+
+    first = collect_drive_demonstrations(
+        get_scenario("stage_b"), episodes=2, seed_start=0, randomization=AdaptationRanges()
+    )
+    second = collect_drive_demonstrations(
+        get_scenario("stage_b"), episodes=2, seed_start=0, randomization=AdaptationRanges()
+    )
+
+    np.testing.assert_allclose(first.observations, second.observations)
+    np.testing.assert_allclose(first.actions, second.actions)
+
+
 def test_drive_warm_start_loads_the_behavior_cloning_weights() -> None:
     pytest.importorskip("stable_baselines3")
     from stable_baselines3 import PPO

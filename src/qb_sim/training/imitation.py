@@ -23,6 +23,7 @@ from qb_sim.training.actions import ACTION_SIZE, encode_engine_action
 from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.drive_observations import drive_observation_from_state
 from qb_sim.training.observations import observation_from_state
+from qb_sim.training.randomization import AdaptationRanges
 from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
 
 _STAND_ACTION = np.array([0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32)
@@ -89,15 +90,19 @@ def collect_drive_demonstrations(
     episodes: int = 200,
     seed_start: int = 0,
     drive_config: DriveConfig | None = None,
+    randomization: AdaptationRanges | None = None,
+    curriculum_progress: float = 1.0,
 ) -> DemonstrationSet:
     """Run the rule QB inside a drive and record ``(observation, action)`` pairs."""
     chosen = scenario if scenario is not None else get_scenario("rushed")
-    env = QBDriveEnv(chosen, drive_config=drive_config)
+    env = QBDriveEnv(chosen, drive_config=drive_config, randomization=randomization)
+    env.set_curriculum_progress(curriculum_progress)
     quarterback = HeuristicQuarterback("qb", chosen.config)
     observations: list[np.ndarray] = []
     actions: list[np.ndarray] = []
     for episode in range(episodes):
         _observation, _ = env.reset(seed=seed_start + episode)
+        quarterback.set_config(env.active_config)
         terminated = truncated = False
         while not (terminated or truncated):
             engine_action = quarterback.decide(env.play.state)
@@ -111,7 +116,7 @@ def collect_drive_demonstrations(
                     state=env.play.state,
                     routes=env.drive.routes,
                     drive_state=env.drive.state,
-                    config=chosen.config,
+                    config=env.active_config,
                     goal_line=env.drive_config.goal_line,
                 )
             )

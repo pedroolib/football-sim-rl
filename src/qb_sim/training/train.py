@@ -294,12 +294,15 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     imitation_samples = 0
     if resume is None and config.imitation_episodes > 0:
         if config.env_kind == "drive":
+            randomization = AdaptationRanges() if config.randomize_config else None
             datasets = [
                 collect_drive_demonstrations(
                     get_scenario(name),
                     episodes=config.imitation_episodes,
                     seed_start=config.seed,
                     drive_config=DriveConfig(),
+                    randomization=randomization,
+                    curriculum_progress=1.0,
                 )
                 for name in scenarios
             ]
