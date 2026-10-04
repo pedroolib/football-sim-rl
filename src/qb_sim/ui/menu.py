@@ -194,6 +194,7 @@ class ModelOption:
     label: str
     path: Path | None
     observation_size: int | None = None
+    group: str = ""
 
 
 def model_observation_size(path: str | Path) -> int | None:
@@ -229,7 +230,9 @@ class ModelMenu:
         Runs live under ``runs/<position>/...``; ``history`` and ``pilots``
         folders are skipped so the menu only offers production models.
         """
-        options = {role: [ModelOption("reglas", None)] for role in cls.ROLES}
+        options = {
+            role: [ModelOption("reglas", None, group="reglas")] for role in cls.ROLES
+        }
         root = Path(runs_dir)
         if not root.is_dir():
             return cls(options)
@@ -247,16 +250,18 @@ class ModelMenu:
             kind = metadata.get("env_kind")
             learner = metadata.get("learner")
             size = model_observation_size(model_path)
+            relative = run.parent.relative_to(root)
+            group = "runs" if relative == Path(".") else relative.as_posix()
             if kind == "drive" and learner == "qb":
-                options["qb"].append(ModelOption(run.name, model_path, size))
+                options["qb"].append(ModelOption(run.name, model_path, size, group))
             elif kind == "role_play" and learner in ("wr1", "wr2"):
-                options["wr1"].append(ModelOption(run.name, model_path, size))
-                options["wr2"].append(ModelOption(run.name, model_path, size))
+                options["wr1"].append(ModelOption(run.name, model_path, size, group))
+                options["wr2"].append(ModelOption(run.name, model_path, size, group))
             elif kind == "role_drive" and learner in ("cb1", "cb2"):
-                options["cb1"].append(ModelOption(run.name, model_path, size))
-                options["cb2"].append(ModelOption(run.name, model_path, size))
+                options["cb1"].append(ModelOption(run.name, model_path, size, group))
+                options["cb2"].append(ModelOption(run.name, model_path, size, group))
             elif kind == "role_drive" and learner == "ru1":
-                options["ru1"].append(ModelOption(run.name, model_path, size))
+                options["ru1"].append(ModelOption(run.name, model_path, size, group))
         return cls(options)
 
     def role(self) -> str:
@@ -291,24 +296,41 @@ class ModelMenu:
     def choose_compatible(
         self,
         role: str,
-        expected_size: int,
+        expected_sizes: tuple[int, ...],
         hints: tuple[str, ...] = (),
     ) -> bool:
-        """Select a model whose saved observation matches ``expected_size``.
+        """Select a model whose saved observation matches a supported size.
 
-        Hinted labels win when compatible; otherwise the first compatible
-        option is used. Returns whether a model was selected.
+        Sizes are tried in order (current layout first), preferring hinted
+        labels within each size; this keeps current models ahead of legacy
+        ones while still falling back to legacy when needed. Returns whether
+        a model was selected.
         """
-        for label in hints:
+        for size in expected_sizes:
+            for label in hints:
+                for index, option in enumerate(self.options[role]):
+                    if option.label == label and option.observation_size == size:
+                        self.selection[role] = index
+                        return True
             for index, option in enumerate(self.options[role]):
-                if option.label == label and option.observation_size == expected_size:
+                if option.observation_size == size:
                     self.selection[role] = index
                     return True
-        for index, option in enumerate(self.options[role]):
-            if option.observation_size == expected_size:
-                self.selection[role] = index
-                return True
         return False
+
+    @staticmethod
+    def display(option: ModelOption) -> str:
+        """Label qualified by its run folder, for the model selector."""
+        if not option.group or option.group == "reglas":
+            return option.label
+        return f"{option.group}/{option.label}"
+
+    def folders(self, role: str) -> list[tuple[str, list[ModelOption]]]:
+        """Options of one role grouped by their run folder, in discovery order."""
+        groups: dict[str, list[ModelOption]] = {}
+        for option in self.options[role]:
+            groups.setdefault(option.group or "reglas", []).append(option)
+        return list(groups.items())
 
     def paths(self) -> dict[str, Path | None]:
         """Current path per role (``None`` means rule controllers)."""

@@ -10,7 +10,6 @@ import pygame
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import get_scenario
-from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
 from qb_sim.training.monitoring import (
     CompositionDemoPanel,
     DefenderPolicyCallable,
@@ -29,9 +28,10 @@ from qb_sim.training.monitoring import (
     rule_quarterback_policy,
     total_timesteps,
 )
-from qb_sim.training.role_context_observations import (
-    DEFENDER_CONTEXT_OBSERVATION_SIZE,
-    RECEIVER_CONTEXT_OBSERVATION_SIZE,
+from qb_sim.training.policy import (
+    SUPPORTED_DEFENDER_SIZES,
+    SUPPORTED_DRIVE_SIZES,
+    SUPPORTED_RECEIVER_SIZES,
 )
 from qb_sim.ui import theme
 from qb_sim.ui.menu import ModelMenu, ParameterMenu
@@ -220,25 +220,33 @@ class TrainingDashboard:
         else:
             self._model_menu.choose_compatible(
                 "qb",
-                DRIVE_OBSERVATION_SIZE,
-                hints=("ppo_qb_g1", "trained_roles_v12"),
+                SUPPORTED_DRIVE_SIZES,
+                hints=("adaptation_g1", "ppo_qb_g1", "trained_roles_v12"),
             )
         defaults = {
-            "wr1": ("ppo_wr_g1", "route_progress_v1"),
-            "wr2": ("ppo_wr_g1", "route_progress_v1"),
-            "cb1": ("ppo_cb_g1", "context_shaping_v1"),
-            "cb2": ("ppo_cb_g1", "context_shaping_v1"),
-            "ru1": ("ppo_ru_g1", "bc_parity_v1", "lr5_interception_v1"),
+            "wr1": (
+                SUPPORTED_RECEIVER_SIZES,
+                ("adaptation_g1", "ppo_wr_g1", "route_progress_v1"),
+            ),
+            "wr2": (
+                SUPPORTED_RECEIVER_SIZES,
+                ("adaptation_g1", "ppo_wr_g1", "route_progress_v1"),
+            ),
+            "cb1": (
+                SUPPORTED_DEFENDER_SIZES,
+                ("adaptation_g1", "ppo_cb_g1", "context_shaping_v1"),
+            ),
+            "cb2": (
+                SUPPORTED_DEFENDER_SIZES,
+                ("adaptation_g1", "ppo_cb_g1", "context_shaping_v1"),
+            ),
+            "ru1": (
+                SUPPORTED_DEFENDER_SIZES,
+                ("adaptation_g1", "ppo_ru_g1", "bc_parity_v1", "lr5_interception_v1"),
+            ),
         }
-        sizes = {
-            "wr1": RECEIVER_CONTEXT_OBSERVATION_SIZE,
-            "wr2": RECEIVER_CONTEXT_OBSERVATION_SIZE,
-            "cb1": DEFENDER_CONTEXT_OBSERVATION_SIZE,
-            "cb2": DEFENDER_CONTEXT_OBSERVATION_SIZE,
-            "ru1": DEFENDER_CONTEXT_OBSERVATION_SIZE,
-        }
-        for role, labels in defaults.items():
-            self._model_menu.choose_compatible(role, sizes[role], hints=labels)
+        for role, (sizes, labels) in defaults.items():
+            self._model_menu.choose_compatible(role, sizes, hints=labels)
 
     def _build_composition_policies(self) -> dict:
         if self._model_menu is None:
@@ -543,11 +551,13 @@ class TrainingDashboard:
         elif self._model_menu is not None:
             title = "MODELOS"
             for role in self._model_menu.options:
-                label = self._model_menu.current(role).label
-                rows.append((role, label if len(label) <= 26 else label[:24] + "…", None, None))
+                label = ModelMenu.display(self._model_menu.current(role))
+                rows.append((role, label if len(label) <= 20 else label[:18] + "…", None, None))
             selected = self._model_menu.index
         else:
             return
+
+        model_rows = title == "MODELOS" and self._model_menu is not None
 
         dim = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
         dim.fill((4, 8, 12, 150))
@@ -589,10 +599,11 @@ class TrainingDashboard:
 
         for row, (name, value_text, numeric, bounds) in enumerate(window):
             index = start + row
+            row_width = 330 if model_rows else card.width - 28
             row_rect = pygame.Rect(
                 card.x + 14,
                 card.y + 56 + row * row_height,
-                card.width - 28,
+                row_width,
                 row_height - 4,
             )
             if index == selected:
@@ -630,6 +641,9 @@ class TrainingDashboard:
                 value_x = row_rect.right - value_image.get_width() - 22
             self.screen.blit(value_image, (value_x, row_rect.y + 6))
 
+        if model_rows:
+            self._draw_model_folders(card)
+
         if len(rows) > visible_rows:
             track = pygame.Rect(card.right - 12, card.y + 56, 4, len(window) * row_height)
             pygame.draw.rect(self.screen, (44, 54, 68), track, border_radius=2)
@@ -642,6 +656,40 @@ class TrainingDashboard:
                 pygame.Rect(track.x, thumb_y, track.width, thumb_height),
                 border_radius=2,
             )
+
+    def _draw_model_folders(self, card: pygame.Rect) -> None:
+        """Folder-grouped list of the focused role's models, with observation sizes."""
+        if self._model_menu is None:
+            return
+        role = self._model_menu.role()
+        current = self._model_menu.current(role)
+        panel = pygame.Rect(card.x + 360, card.y + 52, card.width - 384, 6 * 30 + 8)
+        pygame.draw.rect(self.screen, MENU_ROW, panel, border_radius=10)
+        pygame.draw.rect(self.screen, (40, 52, 68), panel, 1, border_radius=10)
+        y = panel.y + 8
+        for group, options in self._model_menu.folders(role):
+            header = self.font_small.render(f"{group}/", True, MENU_MUTED)
+            self.screen.blit(header, (panel.x + 12, y))
+            y += 18
+            for option in options:
+                if y > panel.bottom - 16:
+                    more = self.font_small.render("…", True, MENU_MUTED)
+                    self.screen.blit(more, (panel.x + 24, y))
+                    return
+                is_current = option == current
+                label_image = self.font_mono.render(
+                    option.label,
+                    True,
+                    MENU_ACCENT if is_current else MENU_TEXT,
+                )
+                size_text = str(option.observation_size) if option.observation_size else "—"
+                size_image = self.font_small.render(size_text, True, MENU_MUTED)
+                self.screen.blit(label_image, (panel.x + 24, y))
+                self.screen.blit(
+                    size_image,
+                    (panel.right - 16 - size_image.get_width(), y + 2),
+                )
+                y += 21
 
     def run(self) -> None:
         """Run the dashboard until the window closes."""

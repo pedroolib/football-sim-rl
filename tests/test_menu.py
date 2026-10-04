@@ -186,6 +186,41 @@ def test_discover_annotates_the_observation_size(tmp_path) -> None:
     assert sizes["route_progress_v1"] == 31
 
 
+def test_discover_annotates_the_run_folder(tmp_path) -> None:
+    nested = tmp_path / "wr" / "route_progress_v1"
+    _fake_model(nested / "final_model.zip", 31)
+    (nested / "config.json").write_text(
+        json.dumps({"env_kind": "role_play", "learner": "wr1"}),
+        encoding="utf-8",
+    )
+    root = tmp_path / "ppo_wr_g1"
+    _fake_model(root / "final_model.zip", 35)
+    (root / "config.json").write_text(
+        json.dumps({"env_kind": "role_play", "learner": "wr1"}),
+        encoding="utf-8",
+    )
+    menu = ModelMenu.discover(tmp_path)
+
+    groups = {
+        option.label: option.group
+        for option in menu.options["wr1"]
+    }
+    assert groups["route_progress_v1"] == "wr"
+    assert groups["ppo_wr_g1"] == "runs"
+    assert {
+        group: [option.label for option in options]
+        for group, options in menu.folders("wr1")
+    } == {
+        "reglas": ["reglas"],
+        "runs": ["ppo_wr_g1"],
+        "wr": ["route_progress_v1"],
+    }
+    assert menu.choose("wr1", "route_progress_v1")
+    assert ModelMenu.display(menu.current("wr1")) == "wr/route_progress_v1"
+    assert menu.choose("wr1", "ppo_wr_g1")
+    assert ModelMenu.display(menu.current("wr1")) == "runs/ppo_wr_g1"
+
+
 def test_choose_compatible_skips_models_with_the_wrong_size() -> None:
     menu = ModelMenu(
         {
@@ -197,10 +232,24 @@ def test_choose_compatible_skips_models_with_the_wrong_size() -> None:
             for role in ModelMenu.ROLES
         }
     )
-    assert menu.choose_compatible("wr1", 35, hints=("old",))
+    assert menu.choose_compatible("wr1", (35, 31), hints=("old",))
     assert menu.current("wr1").label == "new"
-    assert not menu.choose_compatible("qb", 61)
+    assert not menu.choose_compatible("qb", (61,))
     assert menu.current("qb").label == "reglas"
+
+
+def test_choose_compatible_falls_back_to_a_legacy_size() -> None:
+    menu = ModelMenu(
+        {
+            role: [
+                ModelOption("reglas", None),
+                ModelOption("old", None, observation_size=31),
+            ]
+            for role in ModelMenu.ROLES
+        }
+    )
+    assert menu.choose_compatible("wr1", (35, 31), hints=("new", "old"))
+    assert menu.current("wr1").label == "old"
 
 
 def test_choose_compatible_honors_the_hint_when_sizes_match() -> None:
@@ -214,5 +263,5 @@ def test_choose_compatible_honors_the_hint_when_sizes_match() -> None:
             for role in ModelMenu.ROLES
         }
     )
-    assert menu.choose_compatible("wr1", 35, hints=("other",))
+    assert menu.choose_compatible("wr1", (35,), hints=("other",))
     assert menu.current("wr1").label == "other"
