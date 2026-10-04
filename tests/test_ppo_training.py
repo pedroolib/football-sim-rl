@@ -340,3 +340,107 @@ def test_role_play_qb_opponent_uses_the_drive_loader(monkeypatch) -> None:
     build_opponents("role_play", "stage_b", (("qb", "model.zip"),))
 
     assert calls == ["drive"]
+
+
+def test_randomized_role_play_training_records_ranges(tmp_path) -> None:
+    config = PPOConfig(
+        run_name="randomized-run",
+        env_kind="role_play",
+        scenario="stage_b",
+        learner="wr1",
+        randomize_config=True,
+        n_envs=2,
+        total_timesteps=128,
+        seed=0,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=1,
+        imitation_episodes=0,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    _, final_path = train(config)
+
+    metadata = json.loads((tmp_path / "randomized-run" / "config.json").read_text())
+    assert metadata["randomize_config"] is True
+    assert metadata["adaptation_ranges"]["receiver_speed"] == [6.0, 8.5]
+    assert metadata["adaptation_ranges"]["defender_speed"] == [5.5, 7.5]
+    assert metadata["adaptation_ranges"]["quarterback_speed"] == [5.0, 8.0]
+    assert metadata["adaptation_ranges"]["rusher_speed"] == [5.0, 8.0]
+    assert metadata["adaptation_ranges"]["throw_max_range"] == [30.0, 55.0]
+    assert metadata["adaptation_ranges"]["throw_base_sigma_degrees"] == [0.5, 4.0]
+    assert metadata["curriculum"]["decay_start_fraction"] == pytest.approx(0.4)
+    assert metadata["curriculum"]["full_fraction"] == pytest.approx(0.8)
+    assert final_path.exists()
+
+
+@pytest.mark.parametrize("env_kind", ["role_play", "role_drive", "drive"])
+def test_build_env_passes_randomization_ranges(env_kind) -> None:
+    from qb_sim.training.randomization import AdaptationRanges
+    from qb_sim.training.train import build_env
+
+    learner = {"role_play": "wr1", "role_drive": "cb1", "drive": "qb"}[env_kind]
+    env = build_env(("stage_b",), env_kind, learner, (), randomization=True)
+    try:
+        assert env.randomization == AdaptationRanges()
+    finally:
+        env.close()
+
+
+def test_env_spec_forwards_randomization_to_build_env(monkeypatch) -> None:
+    from qb_sim.rules.scenarios import get_scenario
+    from qb_sim.training import train as train_module
+    from qb_sim.training.role_env import RolePlayEnv
+
+    captured: dict = {}
+
+    def fake_build_env(
+        scenario_names,
+        env_kind="passing",
+        learner="qb",
+        opponents=(),
+        randomization=None,
+    ):
+        captured["randomization"] = randomization
+        return RolePlayEnv(get_scenario(scenario_names[0]), learner_id=learner)
+
+    monkeypatch.setattr(train_module, "build_env", fake_build_env)
+
+    env = train_module._EnvSpec(("stage_b",), "role_play", "wr1", (), True)()
+    env.close()
+    assert captured["randomization"] is True
+
+
+def test_curriculum_callback_maps_progress_to_phase() -> None:
+    from types import SimpleNamespace
+
+    from qb_sim.training.train import AdaptationCurriculumCallback, build_vec_env
+
+    config = PPOConfig(env_kind="role_play", scenario="stage_b", learner="wr1", n_envs=2)
+    env = build_vec_env(config, ("stage_b",))
+    try:
+        callback = AdaptationCurriculumCallback()
+        callback.model = SimpleNamespace(get_env=lambda: env)
+        callback._total_timesteps = 100
+
+        callback.num_timesteps = 20
+        assert callback._on_step()
+        assert env.get_attr("_curriculum_progress") == [0.0, 0.0]
+
+        callback.num_timesteps = 60
+        assert callback._on_step()
+        assert env.get_attr("_curriculum_progress") == [
+            pytest.approx(0.5),
+            pytest.approx(0.5),
+        ]
+
+        callback.num_timesteps = 90
+        assert callback._on_step()
+        assert env.get_attr("_curriculum_progress") == [1.0, 1.0]
+    finally:
+        env.close()

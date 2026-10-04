@@ -37,11 +37,15 @@ from qb_sim.training.imitation import (
 from qb_sim.training.multiscenario import MultiScenarioEnv
 from qb_sim.training.observations import OBSERVATION_SIZE
 from qb_sim.training.ppo_config import PPOConfig
+from qb_sim.training.randomization import AdaptationRanges
 from qb_sim.training.role_context_observations import (
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
 )
 from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
+
+CURRICULUM_DECAY_START_FRACTION = 0.4
+CURRICULUM_FULL_FRACTION = 0.8
 
 
 class AttemptAnnealingCallback(BaseCallback):
@@ -63,6 +67,53 @@ class AttemptAnnealingCallback(BaseCallback):
         if self._supports_attempt_scale:
             env.env_method("set_attempt_scale", scale)
         self._applied_scale = scale
+        return True
+
+
+class AdaptationCurriculumCallback(BaseCallback):
+    """Widen the sampled capability ranges as training progresses.
+
+    The phase stays at 0 (narrow) until ``decay_start_fraction`` of the run,
+    grows linearly to 1.0 at ``full_fraction``, and stays at 1.0 afterwards.
+    """
+
+    def __init__(
+        self,
+        decay_start_fraction: float = CURRICULUM_DECAY_START_FRACTION,
+        full_fraction: float = CURRICULUM_FULL_FRACTION,
+        verbose: int = 0,
+    ) -> None:
+        super().__init__(verbose)
+        if not 0.0 <= decay_start_fraction < full_fraction <= 1.0:
+            raise ValueError("curriculum fractions must satisfy 0 <= start < full <= 1")
+        self._decay_start_fraction = float(decay_start_fraction)
+        self._full_fraction = float(full_fraction)
+        self._total_timesteps = 1
+        self._applied_progress: float | None = None
+        self._supports_curriculum: bool | None = None
+
+    def _on_training_start(self) -> None:
+        self._total_timesteps = max(int(self.model._total_timesteps), 1)
+
+    def _progress(self) -> float:
+        fraction = self.num_timesteps / self._total_timesteps
+        if fraction <= self._decay_start_fraction:
+            return 0.0
+        if fraction >= self._full_fraction:
+            return 1.0
+        span = self._full_fraction - self._decay_start_fraction
+        return (fraction - self._decay_start_fraction) / span
+
+    def _on_step(self) -> bool:
+        progress = self._progress()
+        if progress == self._applied_progress:
+            return True
+        env = self.model.get_env()
+        if self._supports_curriculum is None:
+            self._supports_curriculum = env.has_attr("set_curriculum_progress")
+        if self._supports_curriculum:
+            env.env_method("set_curriculum_progress", progress)
+        self._applied_progress = progress
         return True
 
 
@@ -104,18 +155,21 @@ def build_env(
     env_kind: str = "passing",
     learner: str = "qb",
     opponents: tuple[tuple[str, str], ...] = (),
+    randomization: bool | None = None,
 ):
     """Create a headless environment for the requested training mode."""
     if env_kind not in ("passing", "drive", "role_play", "role_drive"):
         raise ValueError(f"unknown env_kind: {env_kind!r}")
     if env_kind in ("drive", "role_play", "role_drive") and len(scenario_names) != 1:
         raise ValueError(f"{env_kind} training supports exactly one scenario")
+    ranges = AdaptationRanges() if randomization else None
     if env_kind == "drive":
         scenario = get_scenario(scenario_names[0])
         return QBDriveEnv(
             scenario,
             drive_config=DriveConfig(),
             opponents=build_opponents(env_kind, scenario_names[0], opponents),
+            randomization=ranges,
         )
     if env_kind == "role_play":
         scenario = get_scenario(scenario_names[0])
@@ -123,6 +177,7 @@ def build_env(
             scenario,
             learner_id=learner,
             opponents=build_opponents(env_kind, scenario_names[0], opponents),
+            randomization=ranges,
         )
     if env_kind == "role_drive":
         scenario = get_scenario(scenario_names[0])
@@ -130,6 +185,7 @@ def build_env(
             scenario,
             learner_id=learner,
             opponents=build_opponents(env_kind, scenario_names[0], opponents),
+            randomization=ranges,
         )
     if len(scenario_names) == 1:
         return QBPassingEnv(get_scenario(scenario_names[0]))
@@ -139,20 +195,35 @@ def build_env(
 class _EnvSpec:
     """Picklable env factory so SubprocVecEnv workers can rebuild the env."""
 
-    def __init__(self, scenarios, env_kind, learner, opponents):
+    def __init__(self, scenarios, env_kind, learner, opponents, randomization=False):
         self.scenarios = tuple(scenarios)
         self.env_kind = env_kind
         self.learner = learner
         self.opponents = tuple(opponents)
+        self.randomization = bool(randomization)
 
     def __call__(self):
-        return Monitor(build_env(self.scenarios, self.env_kind, self.learner, self.opponents))
+        return Monitor(
+            build_env(
+                self.scenarios,
+                self.env_kind,
+                self.learner,
+                self.opponents,
+                self.randomization,
+            )
+        )
 
 
 def build_vec_env(config: PPOConfig, scenarios: tuple[str, ...]):
     """Single DummyVecEnv or a forked SubprocVecEnv depending on ``n_envs``."""
     factories = [
-        _EnvSpec(scenarios, config.env_kind, config.learner, config.opponents)
+        _EnvSpec(
+            scenarios,
+            config.env_kind,
+            config.learner,
+            config.opponents,
+            config.randomize_config,
+        )
         for _ in range(max(config.n_envs, 1))
     ]
     if config.n_envs <= 1:
@@ -193,7 +264,15 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     scenarios = effective_scenarios(config)
     env = build_vec_env(config, scenarios)
     eval_env = DummyVecEnv(
-        [_EnvSpec(scenarios, config.env_kind, config.learner, config.opponents)]
+        [
+            _EnvSpec(
+                scenarios,
+                config.env_kind,
+                config.learner,
+                config.opponents,
+                config.randomize_config,
+            )
+        ]
     )
 
     if resume is not None:
@@ -279,6 +358,8 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
             deterministic=True,
         ),
     ]
+    if config.randomize_config:
+        callbacks.append(AdaptationCurriculumCallback())
     model.learn(
         total_timesteps=config.total_timesteps,
         callback=callbacks,
@@ -299,6 +380,13 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
     metadata["learner"] = config.learner
     metadata["n_envs"] = config.n_envs
     metadata["opponents"] = [list(pair) for pair in config.opponents]
+    metadata["randomize_config"] = config.randomize_config
+    if config.randomize_config:
+        metadata["adaptation_ranges"] = dataclasses.asdict(AdaptationRanges())
+        metadata["curriculum"] = {
+            "decay_start_fraction": CURRICULUM_DECAY_START_FRACTION,
+            "full_fraction": CURRICULUM_FULL_FRACTION,
+        }
     if config.env_kind == "drive":
         metadata["observation_size"] = DRIVE_OBSERVATION_SIZE
     elif config.env_kind == "role_play":
@@ -346,6 +434,12 @@ def main(argv: list[str] | None = None) -> None:
         help="Frozen opponent policy, e.g. qb=runs/ppo/final_model.zip. Repeatable.",
     )
     parser.add_argument(
+        "--randomize-config",
+        action="store_true",
+        default=defaults.randomize_config,
+        help="Sample capability ranges per episode with the adaptation curriculum.",
+    )
+    parser.add_argument(
         "--scenarios",
         default=None,
         help="Comma-separated scenario list to cycle during training.",
@@ -386,6 +480,7 @@ def main(argv: list[str] | None = None) -> None:
         env_kind=args.env,
         learner=args.learner,
         opponents=tuple(opponents),
+        randomize_config=args.randomize_config,
         scenarios=scenarios,
         total_timesteps=args.timesteps,
         seed=args.seed,
