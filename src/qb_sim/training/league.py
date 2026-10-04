@@ -21,14 +21,16 @@ from qb_sim.training.role_evaluation import run_composition_episode, summarize_c
 
 ROLE_OPPONENTS: dict[str, tuple[str, ...]] = {
     "qb": ("wr1", "wr2", "cb1", "cb2", "ru1"),
-    "wr": ("qb", "cb1", "cb2", "ru1"),
+    "wr1": ("qb", "wr2", "cb1", "cb2", "ru1"),
+    "wr2": ("qb", "wr1", "cb1", "cb2", "ru1"),
     "cb": ("qb", "wr1", "wr2", "ru1"),
     "ru": ("qb", "wr1", "wr2", "cb1", "cb2"),
 }
 
 ROLE_ENVS: dict[str, tuple[str, str]] = {
     "qb": ("drive", "qb"),
-    "wr": ("role_play", "wr1"),
+    "wr1": ("receiver_drive", "wr1"),
+    "wr2": ("receiver_drive", "wr2"),
     "cb": ("role_drive", "cb1"),
     "ru": ("role_drive", "ru1"),
 }
@@ -44,7 +46,7 @@ class LeagueConfig:
 
     rounds: int = 4
     steps: int = 150_000
-    rotation: tuple[str, ...] = ("qb", "wr", "cb", "ru")
+    rotation: tuple[str, ...] = ("qb", "wr1", "wr2", "cb", "ru")
     pool_size: int = 3
     patience: int = 2
     scenario: str = "stage_b"
@@ -170,8 +172,8 @@ def load_role_policies(state: dict[str, str], scenario_name: str) -> dict[str, o
     """Load the current learned policy for every roster player."""
     return {
         "qb": load_drive_policy(state["qb"], scenario_name),
-        "wr1": load_receiver_policy(state["wr"], scenario_name, "wr1"),
-        "wr2": load_receiver_policy(state["wr"], scenario_name, "wr2"),
+        "wr1": load_receiver_policy(state["wr1"], scenario_name, "wr1"),
+        "wr2": load_receiver_policy(state["wr2"], scenario_name, "wr2"),
         "cb1": load_defender_policy(state["cb"], scenario_name, "cb1"),
         "cb2": load_defender_policy(state["cb"], scenario_name, "cb2"),
         "ru1": load_defender_policy(state["ru"], scenario_name, "ru1"),

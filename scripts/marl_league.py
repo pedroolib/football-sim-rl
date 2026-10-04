@@ -4,7 +4,11 @@ Example:
 
     python scripts/marl_league.py \
         --rounds 4 --steps 150000 --n-envs 8 --n-steps 128 \
-        --eval-episodes 100 --output runs/league --base runs/league/base.json
+        --rotation qb,wr1,wr2,cb,ru --eval-episodes 100 \
+        --output runs/league --base runs/league/base.json
+
+The default rotation is ``qb,wr1,wr2,cb,ru``; the receiver slots are trained
+independently with ``receiver_drive`` against frozen teammates/opponents.
 
 Each round trains one role (rotation) against one sampled snapshot per opponent
 player id, evaluates the learned composition and the rule baseline on the same
@@ -37,16 +41,17 @@ from qb_sim.training.league import (
 )
 
 DEFAULT_BASE: dict[str, str] = {
-    "qb": "runs/qb/drive/adaptation_g1/final_model.zip",
-    "wr": "runs/wr/adaptation_g1/final_model.zip",
+    "qb": "runs/qb/drive/teacher_vs_wr_pair/final_model.zip",
+    "wr1": "runs/wr/drive_wr1_v2/final_model.zip",
+    "wr2": "runs/wr/drive_wr2_v1/final_model.zip",
     "cb": "runs/cb/adaptation_g1/final_model.zip",
     "ru": "runs/ru/adaptation_g1/final_model.zip",
 }
 
 ROLE_BY_PLAYER: dict[str, str] = {
     "qb": "qb",
-    "wr1": "wr",
-    "wr2": "wr",
+    "wr1": "wr1",
+    "wr2": "wr2",
     "cb1": "cb",
     "cb2": "cb",
     "ru1": "ru",
@@ -154,7 +159,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="M7-MARL league over frozen snapshots")
     parser.add_argument("--rounds", type=int, default=defaults.rounds)
     parser.add_argument("--steps", type=int, default=defaults.steps)
-    parser.add_argument("--rotation", default=",".join(defaults.rotation))
+    parser.add_argument(
+        "--rotation",
+        default=",".join(defaults.rotation),
+        help=(
+            "Comma-separated training roles in round order "
+            "(default: qb,wr1,wr2,cb,ru)"
+        ),
+    )
     parser.add_argument("--scenario", default=defaults.scenario)
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--n-envs", type=int, default=defaults.n_envs)
@@ -166,7 +178,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--base",
         default=None,
-        help="JSON mapping role -> existing model path ('rules' is not supported)",
+        help=(
+            "JSON mapping each role (qb/wr1/wr2/cb/ru) to an existing model "
+            "path ('rules' is not supported)"
+        ),
     )
     parser.add_argument("--resume", default=None, help="league state JSON to continue from")
     args = parser.parse_args(argv)
@@ -200,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
             base_models.update(json.loads(Path(args.base).read_text(encoding="utf-8")))
         default_table = output / "league_table.json"
         state = _load_state(state_path, base_models, default_table)
-        for role in ("qb", "wr", "cb", "ru"):
+        for role in ("qb", "wr1", "wr2", "cb", "ru"):
             model = state["models"].get(role)
             if not isinstance(model, str) or not Path(model).is_file():
                 parser.error(f"invalid model path for {role}: {model!r}")

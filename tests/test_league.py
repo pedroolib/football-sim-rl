@@ -20,13 +20,14 @@ from qb_sim.training.league import (
     train_round,
 )
 
-B2_MODELS = {
-    "qb": Path("runs/qb/drive/adaptation_g1/final_model.zip"),
-    "wr": Path("runs/wr/adaptation_g1/final_model.zip"),
+BASE_MODELS = {
+    "qb": Path("runs/qb/drive/teacher_vs_wr_pair/final_model.zip"),
+    "wr1": Path("runs/wr/drive_wr1_v2/final_model.zip"),
+    "wr2": Path("runs/wr/drive_wr2_v1/final_model.zip"),
     "cb": Path("runs/cb/adaptation_g1/final_model.zip"),
     "ru": Path("runs/ru/adaptation_g1/final_model.zip"),
 }
-B2_AVAILABLE = all(path.is_file() for path in B2_MODELS.values())
+BASE_AVAILABLE = all(path.is_file() for path in BASE_MODELS.values())
 
 
 def _write_snapshot(path: Path, mtime_ns: int) -> Path:
@@ -109,7 +110,7 @@ def test_league_config_defaults_match_the_spec() -> None:
 
     assert config.rounds == 4
     assert config.steps == 150_000
-    assert config.rotation == ("qb", "wr", "cb", "ru")
+    assert config.rotation == ("qb", "wr1", "wr2", "cb", "ru")
     assert config.pool_size == 3
     assert config.patience == 2
     assert config.scenario == "stage_b"
@@ -125,18 +126,24 @@ def test_league_config_defaults_match_the_spec() -> None:
 def test_role_opponents_mapping() -> None:
     assert ROLE_OPPONENTS == {
         "qb": ("wr1", "wr2", "cb1", "cb2", "ru1"),
-        "wr": ("qb", "cb1", "cb2", "ru1"),
+        "wr1": ("qb", "wr2", "cb1", "cb2", "ru1"),
+        "wr2": ("qb", "wr1", "cb1", "cb2", "ru1"),
         "cb": ("qb", "wr1", "wr2", "ru1"),
         "ru": ("qb", "wr1", "wr2", "cb1", "cb2"),
     }
 
 
+def test_wr_roles_oppose_each_other() -> None:
+    assert "wr2" in ROLE_OPPONENTS["wr1"]
+    assert "wr1" in ROLE_OPPONENTS["wr2"]
+
+
 def test_opponent_spec_samples_one_snapshot_per_opponent(tmp_path: Path) -> None:
     pools = {player: _make_pool(tmp_path, player) for player in _all_player_ids()}
 
-    spec = opponent_spec("wr", pools, np.random.default_rng(3))
+    spec = opponent_spec("wr1", pools, np.random.default_rng(3))
 
-    assert [player for player, _ in spec] == list(ROLE_OPPONENTS["wr"])
+    assert [player for player, _ in spec] == list(ROLE_OPPONENTS["wr1"])
     assert all(Path(path) in pools[player].files() for player, path in spec)
 
 
@@ -195,7 +202,8 @@ def test_train_round_builds_role_specific_ppo_configs(monkeypatch, tmp_path: Pat
 
     expected = {
         "qb": ("drive", "qb"),
-        "wr": ("role_play", "wr1"),
+        "wr1": ("receiver_drive", "wr1"),
+        "wr2": ("receiver_drive", "wr2"),
         "cb": ("role_drive", "cb1"),
         "ru": ("role_drive", "ru1"),
     }
@@ -232,7 +240,7 @@ def test_train_round_uses_the_config_device(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setattr("qb_sim.training.train.train", fake_train)
 
     train_round(
-        "wr",
+        "wr1",
         LeagueConfig(device="cuda:0", output=str(tmp_path)),
         (("qb", "rules"),),
         round_index=0,
@@ -258,16 +266,16 @@ def test_train_round_smoke_trains_and_writes_config(tmp_path: Path) -> None:
     )
     opponents = (("qb", "rules"),)
 
-    final_path = train_round("wr", config, opponents, round_index=0)
+    final_path = train_round("wr1", config, opponents, round_index=0)
 
-    assert final_path == tmp_path / "league" / "r0_wr" / "final_model.zip"
+    assert final_path == tmp_path / "league" / "r0_wr1" / "final_model.zip"
     assert final_path.is_file()
     metadata = json.loads((final_path.parent / "config.json").read_text(encoding="utf-8"))
     assert metadata["opponents"] == [["qb", "rules"]]
-    assert metadata["env_kind"] == "role_play"
+    assert metadata["env_kind"] == "receiver_drive"
     assert metadata["learner"] == "wr1"
     assert metadata["seed"] == config.seed
-    assert metadata["run_name"] == "league/r0_wr"
+    assert metadata["run_name"] == "league/r0_wr1"
 
 
 def test_load_role_policies_maps_state_paths_to_roster_players(monkeypatch) -> None:
@@ -289,7 +297,13 @@ def test_load_role_policies_maps_state_paths_to_roster_players(monkeypatch) -> N
     monkeypatch.setattr(league, "load_receiver_policy", fake_receiver)
     monkeypatch.setattr(league, "load_defender_policy", fake_defender)
 
-    state = {"qb": "qb.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
+    state = {
+        "qb": "qb.zip",
+        "wr1": "wr1.zip",
+        "wr2": "wr2.zip",
+        "cb": "cb.zip",
+        "ru": "ru.zip",
+    }
     policies = load_role_policies(state, "stage_b")
 
     assert policies == {
@@ -301,11 +315,34 @@ def test_load_role_policies_maps_state_paths_to_roster_players(monkeypatch) -> N
         "ru1": "defender:ru1",
     }
     assert ("drive", "qb.zip", "stage_b") in calls
-    assert ("receiver", "wr.zip", "stage_b", "wr1") in calls
-    assert ("receiver", "wr.zip", "stage_b", "wr2") in calls
+    assert ("receiver", "wr1.zip", "stage_b", "wr1") in calls
+    assert ("receiver", "wr2.zip", "stage_b", "wr2") in calls
     assert ("defender", "cb.zip", "stage_b", "cb1") in calls
     assert ("defender", "cb.zip", "stage_b", "cb2") in calls
     assert ("defender", "ru.zip", "stage_b", "ru1") in calls
+
+
+def test_load_role_policies_loads_a_different_file_per_wr(monkeypatch) -> None:
+    paths = []
+
+    def fake_receiver(path, scenario_name, player_id):
+        paths.append((player_id, path))
+        return object()
+
+    monkeypatch.setattr(league, "load_receiver_policy", fake_receiver)
+    monkeypatch.setattr(league, "load_drive_policy", lambda path, name: object())
+    monkeypatch.setattr(league, "load_defender_policy", lambda path, name, player: object())
+
+    state = {
+        "qb": "qb.zip",
+        "wr1": "wr1.zip",
+        "wr2": "wr2.zip",
+        "cb": "cb.zip",
+        "ru": "ru.zip",
+    }
+    load_role_policies(state, "stage_b")
+
+    assert dict(paths) == {"wr1": "wr1.zip", "wr2": "wr2.zip"}
 
 
 def test_evaluate_league_runs_learned_and_rule_compositions(monkeypatch) -> None:
@@ -355,7 +392,13 @@ def test_evaluate_league_runs_learned_and_rule_compositions(monkeypatch) -> None
         lambda results: summaries.append(list(results)) or {"points_per_drive": 1.0},
     )
 
-    state = {"qb": "qb.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
+    state = {
+        "qb": "qb.zip",
+        "wr1": "wr1.zip",
+        "wr2": "wr2.zip",
+        "cb": "cb.zip",
+        "ru": "ru.zip",
+    }
     report = evaluate_league(state, LeagueConfig(eval_episodes=2, eval_seed_start=500))
 
     assert report == {
@@ -398,8 +441,20 @@ def test_evaluate_league_reuses_one_qb_policy_per_call(monkeypatch) -> None:
     monkeypatch.setattr(league, "run_composition_episode", lambda env, policy, seed: {"fake": True})
     monkeypatch.setattr(league, "summarize_composition", lambda results: {"points_per_drive": 1.0})
 
-    first = {"qb": "first.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
-    second = {"qb": "second.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
+    first = {
+        "qb": "first.zip",
+        "wr1": "wr1.zip",
+        "wr2": "wr2.zip",
+        "cb": "cb.zip",
+        "ru": "ru.zip",
+    }
+    second = {
+        "qb": "second.zip",
+        "wr1": "wr1.zip",
+        "wr2": "wr2.zip",
+        "cb": "cb.zip",
+        "ru": "ru.zip",
+    }
 
     evaluate_league(first, LeagueConfig(eval_episodes=3, eval_seed_start=0))
     evaluate_league(second, LeagueConfig(eval_episodes=3, eval_seed_start=0))
@@ -427,9 +482,9 @@ def test_league_row_records_metrics_and_improvement() -> None:
     assert beyond["improved"] is True
 
 
-@pytest.mark.skipif(not B2_AVAILABLE, reason="B2 generalized models are not present")
-def test_evaluate_league_with_the_b2_models() -> None:
-    state = {role: str(path) for role, path in B2_MODELS.items()}
+@pytest.mark.skipif(not BASE_AVAILABLE, reason="base generalized models are not present")
+def test_evaluate_league_with_the_base_models() -> None:
+    state = {role: str(path) for role, path in BASE_MODELS.items()}
 
     report = evaluate_league(state, LeagueConfig(eval_episodes=2, eval_seed_start=10_000))
 
@@ -453,11 +508,11 @@ def _load_marl_league():
 
 
 def _base_json(tmp_path: Path) -> Path:
-    if B2_AVAILABLE:
-        base = {role: str(path) for role, path in B2_MODELS.items()}
+    if BASE_AVAILABLE:
+        base = {role: str(path) for role, path in BASE_MODELS.items()}
     else:
         base = {}
-        for role in ("qb", "wr", "cb", "ru"):
+        for role in ("qb", "wr1", "wr2", "cb", "ru"):
             model = tmp_path / f"base_{role}.zip"
             model.write_bytes(b"model")
             base[role] = str(model)
@@ -528,9 +583,65 @@ def test_marl_league_smoke_writes_state_and_table(tmp_path: Path, monkeypatch) -
     assert state["round"] == 1
     assert state["table"] == str(table_path)
     assert state["models"]["qb"] == str(tmp_path / "league" / "r0_qb" / "final_model.zip")
-    assert state["models"]["wr"] == json.loads(base_json.read_text(encoding="utf-8"))["wr"]
-    assert set(evaluated_states[0]) == {"qb", "wr", "cb", "ru"}
+    base_models = json.loads(base_json.read_text(encoding="utf-8"))
+    assert state["models"]["wr1"] == base_models["wr1"]
+    assert state["models"]["wr2"] == base_models["wr2"]
+    assert set(evaluated_states[0]) == {"qb", "wr1", "wr2", "cb", "ru"}
     assert evaluated_states[0]["qb"] == state["models"]["qb"]
+
+
+def test_marl_league_wr1_rotation_smoke_trains_wr1_against_wr2(tmp_path: Path, monkeypatch) -> None:
+    marl_league = _load_marl_league()
+    base_json = _base_json(tmp_path)
+    trained_roles = []
+    opponents_seen = []
+
+    def fake_train_round(role, config, opponents, round_index) -> Path:
+        trained_roles.append(role)
+        opponents_seen.append(dict(opponents))
+        return _fake_train_round(role, config, opponents, round_index)
+
+    def fake_evaluate_league(state, config):
+        return {
+            "learned": {"points_per_drive": 2.0},
+            "rules": {"points_per_drive": 1.0},
+        }
+
+    monkeypatch.setattr(marl_league, "train_round", fake_train_round)
+    monkeypatch.setattr(marl_league, "evaluate_league", fake_evaluate_league)
+
+    result = marl_league.main(
+        [
+            "--rotation",
+            "wr1",
+            "--rounds",
+            "1",
+            "--steps",
+            "256",
+            "--n-envs",
+            "1",
+            "--n-steps",
+            "64",
+            "--eval-episodes",
+            "1",
+            "--output",
+            str(tmp_path),
+            "--base",
+            str(base_json),
+        ]
+    )
+
+    rows = json.loads((tmp_path / "league_table.json").read_text(encoding="utf-8"))
+    assert result == 0
+    assert trained_roles == ["wr1"]
+    assert set(opponents_seen[0]) == set(ROLE_OPPONENTS["wr1"])
+    assert "wr2" in opponents_seen[0]
+    assert "wr1" not in opponents_seen[0]
+    assert len(rows) == 1
+    assert rows[0]["role"] == "wr1"
+    assert set(rows[0]["opponents"]) == set(ROLE_OPPONENTS["wr1"])
+    state = json.loads((tmp_path / "league_state.json").read_text(encoding="utf-8"))
+    assert state["models"]["wr1"] == str(tmp_path / "league" / "r0_wr1" / "final_model.zip")
 
 
 def test_marl_league_passes_device_to_train_round(tmp_path: Path, monkeypatch) -> None:
@@ -646,7 +757,7 @@ def test_marl_league_stops_after_patience_without_improvement(tmp_path: Path, mo
 
     rows = json.loads((tmp_path / "league_table.json").read_text(encoding="utf-8"))
     assert [row["improved"] for row in rows] == [True, False, False]
-    assert [entry[1] for entry in trained] == ["qb", "wr", "cb"]
+    assert [entry[1] for entry in trained] == ["qb", "wr1", "wr2"]
     state = json.loads((tmp_path / "league_state.json").read_text(encoding="utf-8"))
     assert state["round"] == 3
 
@@ -666,7 +777,7 @@ def test_marl_league_resumes_from_existing_state(tmp_path: Path, monkeypatch) ->
     marl_league.main(["--rounds", "2", "--resume", str(tmp_path / "league_state.json"), *common])
 
     rows = json.loads((tmp_path / "league_table.json").read_text(encoding="utf-8"))
-    assert [row["role"] for row in rows] == ["qb", "wr"]
+    assert [row["role"] for row in rows] == ["qb", "wr1"]
     state = json.loads((tmp_path / "league_state.json").read_text(encoding="utf-8"))
     assert state["round"] == 2
 
@@ -679,11 +790,16 @@ def test_marl_league_rejects_invalid_base_before_training(tmp_path: Path, monkey
 
     monkeypatch.setattr(marl_league, "train_round", fail_train_round)
     rules_base = tmp_path / "rules_base.json"
-    rules_base.write_text(json.dumps({role: "rules" for role in ("qb", "wr", "cb", "ru")}))
+    rules_base.write_text(
+        json.dumps({role: "rules" for role in ("qb", "wr1", "wr2", "cb", "ru")})
+    )
     missing_base = tmp_path / "missing_base.json"
     missing_base.write_text(
         json.dumps(
-            {role: str(tmp_path / f"missing_{role}.zip") for role in ("qb", "wr", "cb", "ru")}
+            {
+                role: str(tmp_path / f"missing_{role}.zip")
+                for role in ("qb", "wr1", "wr2", "cb", "ru")
+            }
         )
     )
 
