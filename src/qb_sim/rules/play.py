@@ -352,7 +352,8 @@ class Play:
         )
 
     def _quarterback_past_the_line(self) -> bool:
-        return float(self.state.player(_QB_ID).position[0]) > self._line_of_scrimmage
+        threshold = self._line_of_scrimmage + self.config.qb_run_margin_yards
+        return float(self.state.player(_QB_ID).position[0]) > threshold
 
     def _start_qb_run(self) -> None:
         """Convert a quarterback past the line of scrimmage into the carrier.

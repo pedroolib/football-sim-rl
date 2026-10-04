@@ -40,6 +40,7 @@ class SimulationConfig:
     max_arc_height: float = 6.0
     carrier_fatigue_per_second: float = 0.0
     carrier_min_speed_factor: float = 0.55
+    qb_run_margin_yards: float = 1.0
     tackle_radius: float = 1.0
     go_length_yards: float = 30.0
     slant_break_yards: float = 3.0
@@ -120,6 +121,8 @@ class SimulationConfig:
                 raise ValueError(f"{name} must be non-negative")
         if not 0.0 <= self.carrier_min_speed_factor <= 1.0:
             raise ValueError("carrier_min_speed_factor must be between 0 and 1")
+        if self.qb_run_margin_yards < 0.0:
+            raise ValueError("qb_run_margin_yards must be non-negative")
         if self.pressure_radius <= 0.0:
             raise ValueError("pressure_radius must be positive")
 

@@ -32,23 +32,24 @@ def _qb_sneak(play: Play, limit: int = 200):
 
 
 def test_qb_crossing_the_los_and_being_tackled_is_a_rush() -> None:
-    config = replace(ZERO_DEVIATION, defender_starts=((21.5, 26.65), (0.0, 0.0)))
+    config = replace(ZERO_DEVIATION, defender_starts=((22.0, 26.65), (0.0, 0.0)))
     play = Play(config)
 
     state = play.step({"qb": FORWARD})
-    assert state.ball.status is BallStatus.CARRIED
-    assert state.carrier_id == "qb"
+    assert state.carrier_id is None
+    assert state.ball.status is BallStatus.HELD
 
-    state = play.step({"qb": FORWARD})
+    for _ in range(3):
+        state = play.step({"qb": FORWARD})
 
     assert state.outcome is PlayOutcome.RUSH
     assert state.carrier_id == "qb"
     assert state.ball.status is BallStatus.DEAD
-    assert state.player("qb").position[0] == pytest.approx(20.65)
+    assert state.player("qb").position[0] == pytest.approx(21.3)
 
 
 def test_rush_spot_is_the_quarterback_position_and_gains_yards() -> None:
-    config = replace(ZERO_DEVIATION, defender_starts=((21.5, 26.65), (0.0, 0.0)))
+    config = replace(ZERO_DEVIATION, defender_starts=((22.0, 26.65), (0.0, 0.0)))
     drive = Drive(config, DriveConfig(los_range=(20.0, 20.0)), seed=1)
     play = drive.start_play()
 
@@ -57,8 +58,8 @@ def test_rush_spot_is_the_quarterback_position_and_gains_yards() -> None:
 
     assert state.outcome is PlayOutcome.RUSH
     assert result.outcome is PlayOutcome.RUSH
-    assert result.spot == pytest.approx(20.65)
-    assert result.yards == pytest.approx(0.65)
+    assert result.spot == pytest.approx(21.3)
+    assert result.yards == pytest.approx(1.3)
     assert result.yards > 0.0
     assert result.throw_distance is None
 
@@ -130,11 +131,12 @@ def test_qb_retreating_behind_the_los_stays_a_runner() -> None:
     config = replace(ZERO_DEVIATION, defender_starts=((30.0, 26.65), (0.0, 0.0)))
     play = Play(config)
 
-    state = play.step({"qb": FORWARD})
+    for _ in range(4):
+        state = play.step({"qb": FORWARD})
     assert state.carrier_id == "qb"
 
-    state = play.step({"qb": BACKWARD})
-    state = play.step({"qb": BACKWARD})
+    for _ in range(5):
+        state = play.step({"qb": BACKWARD})
 
     assert state.outcome is PlayOutcome.IN_PROGRESS
     assert state.carrier_id == "qb"
@@ -144,7 +146,8 @@ def test_qb_retreating_behind_the_los_stays_a_runner() -> None:
 
 def test_qb_cannot_throw_after_crossing_the_los() -> None:
     play = Play(ZERO_DEVIATION)
-    play.step({"qb": FORWARD})
+    for _ in range(4):
+        play.step({"qb": FORWARD})
 
     with pytest.raises(ValueError):
         play.throw_to(vec2(60.0, 26.65))
@@ -153,9 +156,10 @@ def test_qb_cannot_throw_after_crossing_the_los() -> None:
 
 
 def test_coverage_defender_chases_the_running_quarterback() -> None:
-    config = replace(ZERO_DEVIATION, defender_starts=((21.5, 26.65), (18.0, 10.0)))
+    config = replace(ZERO_DEVIATION, defender_starts=((22.5, 26.65), (18.0, 10.0)))
     play = Play(config)
-    state = play.step({"qb": FORWARD})
+    for _ in range(4):
+        state = play.step({"qb": FORWARD})
     assert state.carrier_id == "qb"
 
     cb1 = ManCoverageController(
@@ -199,3 +203,43 @@ def test_qb_rush_is_deterministic_for_the_same_seed_and_actions() -> None:
 
     assert first == second
     assert first[-1][1] is PlayOutcome.RUSH
+
+
+def test_qb_inside_the_run_margin_is_not_a_runner_and_can_throw() -> None:
+    play = Play(ZERO_DEVIATION)
+    play.state.player("qb").position = vec2(20.5, 26.65)
+
+    state = play.step()
+
+    assert state.carrier_id is None
+    assert state.ball.status is BallStatus.HELD
+
+    play.throw_to(vec2(60.0, 26.65))
+
+    assert play.state.ball.status is BallStatus.IN_FLIGHT
+
+
+def test_qb_tackled_inside_the_run_margin_is_sacked() -> None:
+    config = replace(ZERO_DEVIATION, defender_starts=((21.0, 26.65), (0.0, 0.0)))
+    play = Play(config)
+    play.state.player("qb").position = vec2(20.5, 26.65)
+
+    state = play.step()
+
+    assert state.outcome is PlayOutcome.SACK
+    assert state.carrier_id is None
+
+
+def test_qb_beyond_the_run_margin_becomes_a_runner() -> None:
+    play = Play(ZERO_DEVIATION)
+    play.state.player("qb").position = vec2(21.5, 26.65)
+
+    state = play.step()
+
+    assert state.carrier_id == "qb"
+    assert state.ball.status is BallStatus.CARRIED
+
+
+def test_run_margin_must_be_non_negative() -> None:
+    with pytest.raises(ValueError):
+        replace(ZERO_DEVIATION, qb_run_margin_yards=-0.1)
