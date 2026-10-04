@@ -3,6 +3,8 @@
 WR layout: 19 base + route one-hot (8) + yards to the goal line + next-waypoint
 delta (length and width) + capped distance to that waypoint + own speed, nearest
 defender speed, QB throw range, and QB speed.
+WR drive layout: the 35 WR context values + down one-hot (3), distance/40, and
+yards from the line of scrimmage to the goal line.
 Defender layout: 19 base + down one-hot (3) + distance/40 + yards to the goal
 line + own speed, target speed, and the last throw distance.
 """
@@ -24,6 +26,7 @@ DEFENDER_CAPABILITY_SLOTS = 3
 RECEIVER_CONTEXT_OBSERVATION_SIZE = (
     19 + len(ROUTE_OBSERVATION_ORDER) + 1 + 3 + RECEIVER_CAPABILITY_SLOTS
 )
+RECEIVER_DRIVE_OBSERVATION_SIZE = RECEIVER_CONTEXT_OBSERVATION_SIZE + 5
 DEFENDER_CONTEXT_OBSERVATION_SIZE = 19 + 3 + 2 + DEFENDER_CAPABILITY_SLOTS
 DISTANCE_SCALE = 40.0
 WAYPOINT_DISTANCE_SCALE = 10.0
@@ -130,6 +133,29 @@ def receiver_context_observation(
             config.quarterback_speed / 10.0,
         )
     )
+    return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
+
+
+def receiver_drive_observation(
+    state: PlayState,
+    player_id: str,
+    config: SimulationConfig,
+    route: RouteName | None,
+    drive_state: DriveState,
+    goal_line: float = 100.0,
+    start: Vector2 | None = None,
+) -> np.ndarray:
+    """Receiver context observation plus down, distance, and field position."""
+    values = [
+        float(value)
+        for value in receiver_context_observation(
+            state, player_id, config, route, goal_line, start
+        )
+    ]
+    down = int(drive_state.down)
+    values.extend(1.0 if down == index else 0.0 for index in range(1, 4))
+    values.append(min(float(drive_state.distance), DISTANCE_SCALE) / DISTANCE_SCALE)
+    values.append((float(goal_line) - float(drive_state.los)) / float(goal_line))
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)
 
 

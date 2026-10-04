@@ -29,6 +29,7 @@ from qb_sim.training.env import QBPassingEnv
 from qb_sim.training.imitation import (
     collect_demonstrations,
     collect_drive_demonstrations,
+    collect_receiver_drive_demonstrations,
     collect_role_drive_demonstrations,
     collect_role_play_demonstrations,
     concatenate_demonstrations,
@@ -38,9 +39,11 @@ from qb_sim.training.multiscenario import MultiScenarioEnv
 from qb_sim.training.observations import OBSERVATION_SIZE
 from qb_sim.training.ppo_config import PPOConfig
 from qb_sim.training.randomization import AdaptationRanges
+from qb_sim.training.receiver_drive_env import ReceiverDriveEnv
 from qb_sim.training.role_context_observations import (
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_DRIVE_OBSERVATION_SIZE,
 )
 from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
 
@@ -166,9 +169,12 @@ def build_env(
     randomization: bool | None = None,
 ):
     """Create a headless environment for the requested training mode."""
-    if env_kind not in ("passing", "drive", "role_play", "role_drive"):
+    if env_kind not in ("passing", "drive", "role_play", "role_drive", "receiver_drive"):
         raise ValueError(f"unknown env_kind: {env_kind!r}")
-    if env_kind in ("drive", "role_play", "role_drive") and len(scenario_names) != 1:
+    if (
+        env_kind in ("drive", "role_play", "role_drive", "receiver_drive")
+        and len(scenario_names) != 1
+    ):
         raise ValueError(f"{env_kind} training supports exactly one scenario")
     ranges = AdaptationRanges() if randomization else None
     if env_kind == "drive":
@@ -190,6 +196,14 @@ def build_env(
     if env_kind == "role_drive":
         scenario = get_scenario(scenario_names[0])
         return RoleDriveEnv(
+            scenario,
+            learner_id=learner,
+            opponents=build_opponents(env_kind, scenario_names[0], opponents),
+            randomization=ranges,
+        )
+    if env_kind == "receiver_drive":
+        scenario = get_scenario(scenario_names[0])
+        return ReceiverDriveEnv(
             scenario,
             learner_id=learner,
             opponents=build_opponents(env_kind, scenario_names[0], opponents),
@@ -328,6 +342,17 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
                 )
                 for name in scenarios
             ]
+        elif config.env_kind == "receiver_drive":
+            datasets = [
+                collect_receiver_drive_demonstrations(
+                    get_scenario(name),
+                    learner_id=config.learner,
+                    episodes=config.imitation_episodes,
+                    seed_start=config.seed,
+                    opponents=build_opponents(config.env_kind, name, config.opponents),
+                )
+                for name in scenarios
+            ]
         else:
             datasets = [
                 collect_demonstrations(
@@ -404,9 +429,11 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
         metadata["observation_size"] = RECEIVER_CONTEXT_OBSERVATION_SIZE
     elif config.env_kind == "role_drive":
         metadata["observation_size"] = DEFENDER_CONTEXT_OBSERVATION_SIZE
+    elif config.env_kind == "receiver_drive":
+        metadata["observation_size"] = RECEIVER_DRIVE_OBSERVATION_SIZE
     else:
         metadata["observation_size"] = OBSERVATION_SIZE
-    if config.env_kind in ("role_play", "role_drive", "drive"):
+    if config.env_kind in ("role_play", "role_drive", "receiver_drive", "drive"):
         stage_b = get_scenario(scenarios[0]).config
         metadata["fatigue"] = {
             "carrier_fatigue_per_second": stage_b.carrier_fatigue_per_second,
@@ -433,7 +460,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--scenario", default=defaults.scenario, choices=sorted(SCENARIOS))
     parser.add_argument(
         "--env",
-        choices=("passing", "drive", "role_play", "role_drive"),
+        choices=("passing", "drive", "role_play", "role_drive", "receiver_drive"),
         default=defaults.env_kind,
     )
     parser.add_argument("--learner", default=defaults.learner)

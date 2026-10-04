@@ -15,7 +15,9 @@ from qb_sim.training.observations import OBSERVATION_SIZE  # noqa: E402
 from qb_sim.training.role_context_observations import (  # noqa: E402
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_DRIVE_OBSERVATION_SIZE,
     receiver_context_observation,
+    receiver_drive_observation,
 )
 
 
@@ -44,6 +46,12 @@ def test_receiver_loader_accepts_legacy_and_current_models(monkeypatch) -> None:
     _patch_load(monkeypatch, RECEIVER_CONTEXT_OBSERVATION_SIZE)
     current = policy_module.load_receiver_policy("new.zip", "stage_b", "wr1")
     assert isinstance(current, policy_module.ReceiverPolicy)
+
+
+def test_receiver_loader_accepts_drive_models(monkeypatch) -> None:
+    _patch_load(monkeypatch, RECEIVER_DRIVE_OBSERVATION_SIZE)
+    drive = policy_module.load_receiver_policy("drive.zip", "stage_b", "wr1")
+    assert isinstance(drive, policy_module.ReceiverPolicy)
 
 
 def test_receiver_loader_rejects_an_unknown_size(monkeypatch) -> None:
@@ -92,6 +100,23 @@ def test_receiver_policy_slices_for_a_legacy_model() -> None:
     assert np.allclose(model.seen, full[:31])
 
 
+def test_receiver_policy_uses_the_drive_layout_for_a_drive_model() -> None:
+    config = get_scenario("stage_b").config
+    state = Play(config, seed=0).state
+    drive_state = Drive(config, DriveConfig(), seed=0).state
+    model = _RecordingModel(RECEIVER_DRIVE_OBSERVATION_SIZE)
+    policy = policy_module.ReceiverPolicy(model, config, "wr1")
+
+    policy(state, ROUTE_OBSERVATION_ORDER[0], None, drive_state)
+
+    assert model.seen is not None
+    assert model.seen.shape == (RECEIVER_DRIVE_OBSERVATION_SIZE,)
+    expected = receiver_drive_observation(
+        state, "wr1", config, ROUTE_OBSERVATION_ORDER[0], drive_state
+    )
+    assert np.allclose(model.seen, expected)
+
+
 def test_defender_policy_slices_for_a_legacy_model() -> None:
     config = get_scenario("stage_b").config
     state = Play(config, seed=0).state
@@ -123,6 +148,6 @@ def test_expected_sizes_match_the_current_builders() -> None:
     assert DRIVE_OBSERVATION_SIZE == 61
     assert RECEIVER_CONTEXT_OBSERVATION_SIZE == 35
     assert DEFENDER_CONTEXT_OBSERVATION_SIZE == 27
-    assert policy_module.SUPPORTED_RECEIVER_SIZES == (35, 31)
+    assert policy_module.SUPPORTED_RECEIVER_SIZES == (40, 35, 31)
     assert policy_module.SUPPORTED_DEFENDER_SIZES == (27, 24)
     assert policy_module.SUPPORTED_DRIVE_SIZES == (61, 57)

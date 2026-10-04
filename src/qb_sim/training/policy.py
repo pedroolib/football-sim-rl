@@ -30,8 +30,10 @@ from qb_sim.training.role_context_observations import (
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CAPABILITY_SLOTS,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_DRIVE_OBSERVATION_SIZE,
     defender_context_observation,
     receiver_context_observation,
+    receiver_drive_observation,
 )
 
 SUPPORTED_PLAY_SIZES = (OBSERVATION_SIZE,)
@@ -40,6 +42,7 @@ SUPPORTED_DRIVE_SIZES = (
     DRIVE_OBSERVATION_SIZE - DRIVE_CAPABILITY_SLOTS,
 )
 SUPPORTED_RECEIVER_SIZES = (
+    RECEIVER_DRIVE_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE - RECEIVER_CAPABILITY_SLOTS,
 )
@@ -176,23 +179,38 @@ class ReceiverPolicy:
         """Replace the embedded config (used when the episode is randomized)."""
         self._config = config
 
+    @property
+    def drive_aware(self) -> bool:
+        """Whether the model was trained on the 40-value drive layout."""
+        return self._expected_size == RECEIVER_DRIVE_OBSERVATION_SIZE
+
     def __call__(
         self,
         state: PlayState,
         route: RouteName | None,
         start: Vector2 | None = None,
+        drive_state: DriveState | None = None,
     ) -> Move | None:
-        observation = _adapt_observation(
-            receiver_context_observation(
+        if drive_state is not None:
+            observation = receiver_drive_observation(
+                state,
+                self._player_id,
+                self._config,
+                route,
+                drive_state,
+                self._goal_line,
+                start,
+            )
+        else:
+            observation = receiver_context_observation(
                 state,
                 self._player_id,
                 self._config,
                 route,
                 self._goal_line,
                 start,
-            ),
-            self._expected_size,
-        )
+            )
+        observation = _adapt_observation(observation, self._expected_size)
         action, _ = self._model.predict(observation, deterministic=True)
         return _move_from_action(action)
 

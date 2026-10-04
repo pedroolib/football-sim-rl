@@ -71,6 +71,8 @@ def decide_player_action(
             play.config.receiver_starts[index][0] + shift,
             play.config.receiver_starts[index][1],
         )
+        if getattr(policy, "drive_aware", False) and drive_state is not None:
+            return policy(play.state, routes[index], start, drive_state=drive_state)
         return policy(play.state, routes[index], start)
     return policy(play.state, defender_target(play, player_id), drive_state)
 

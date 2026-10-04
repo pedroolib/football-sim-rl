@@ -24,6 +24,7 @@ from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.drive_observations import drive_observation_from_state
 from qb_sim.training.observations import observation_from_state
 from qb_sim.training.randomization import AdaptationRanges
+from qb_sim.training.receiver_drive_env import ReceiverDriveEnv
 from qb_sim.training.role_env import RoleDriveEnv, RolePlayEnv
 
 _STAND_ACTION = np.array([0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32)
@@ -237,6 +238,40 @@ def collect_role_play_demonstrations(
     """Run the rule receiver and record ``(31-observation, 2-action)`` pairs."""
     chosen = scenario if scenario is not None else get_scenario("stage_b")
     env = RolePlayEnv(chosen, learner_id=learner_id, opponents=opponents, goal_line=goal_line)
+    observations: list[np.ndarray] = []
+    actions: list[np.ndarray] = []
+    for episode in range(episodes):
+        env.reset(seed=seed_start + episode)
+        terminated = truncated = False
+        while not (terminated or truncated):
+            agent = env.rule_agent(learner_id)
+            action = agent.decide(env.play.state)
+            observations.append(env.observation())
+            actions.append(_encoded_move(action))
+            _, _, terminated, truncated, _ = env.step(actions[-1])
+    env.close()
+    return DemonstrationSet(
+        observations=np.stack(observations).astype(np.float32),
+        actions=np.stack(actions).astype(np.float32),
+    )
+
+
+def collect_receiver_drive_demonstrations(
+    scenario: Scenario | None = None,
+    learner_id: str = "wr1",
+    episodes: int = 200,
+    seed_start: int = 0,
+    opponents: Mapping[str, object] | None = None,
+    drive_config: DriveConfig | None = None,
+) -> DemonstrationSet:
+    """Run the rule receiver and record ``(40-observation, 2-action)`` pairs."""
+    chosen = scenario if scenario is not None else get_scenario("stage_b")
+    env = ReceiverDriveEnv(
+        chosen,
+        learner_id=learner_id,
+        opponents=opponents,
+        drive_config=drive_config,
+    )
     observations: list[np.ndarray] = []
     actions: list[np.ndarray] = []
     for episode in range(episodes):
