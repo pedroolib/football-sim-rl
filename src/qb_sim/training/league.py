@@ -7,12 +7,25 @@ from pathlib import Path
 
 import numpy as np
 
+from qb_sim.training.ppo_config import PPOConfig
+
 ROLE_OPPONENTS: dict[str, tuple[str, ...]] = {
     "qb": ("wr1", "wr2", "cb1", "cb2", "ru1"),
     "wr": ("qb", "cb1", "cb2", "ru1"),
     "cb": ("qb", "wr1", "wr2", "ru1"),
     "ru": ("qb", "wr1", "wr2", "cb1", "cb2"),
 }
+
+ROLE_ENVS: dict[str, tuple[str, str]] = {
+    "qb": ("drive", "qb"),
+    "wr": ("role_play", "wr1"),
+    "cb": ("role_drive", "cb1"),
+    "ru": ("role_drive", "ru1"),
+}
+
+LEAGUE_IMITATION_EPISODES = 300
+LEAGUE_IMITATION_EPOCHS = 800
+LEAGUE_IMITATION_LEARNING_RATE = 1e-4
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,3 +118,38 @@ def improved(points: float, previous: float | None, tolerance: float = 0.05) -> 
     if previous is None:
         return True
     return points > previous + tolerance
+
+
+def train_round(
+    role: str,
+    config: LeagueConfig,
+    opponents: tuple[tuple[str, str], ...],
+    round_index: int,
+) -> Path:
+    """Train one league round in-process and return the ``final_model.zip`` path."""
+    if role not in ROLE_ENVS:
+        raise ValueError(f"unknown league role: {role!r}")
+    from qb_sim.training.train import train
+
+    env_kind, learner = ROLE_ENVS[role]
+    ppo_config = PPOConfig(
+        run_name=f"league/r{round_index}_{role}",
+        scenario=config.scenario,
+        env_kind=env_kind,
+        learner=learner,
+        opponents=opponents,
+        randomize_config=False,
+        total_timesteps=config.steps,
+        seed=config.seed + round_index,
+        n_envs=config.n_envs,
+        n_steps=config.n_steps,
+        eval_episodes=config.eval_episodes,
+        imitation_episodes=LEAGUE_IMITATION_EPISODES,
+        imitation_epochs=LEAGUE_IMITATION_EPOCHS,
+        imitation_learning_rate=LEAGUE_IMITATION_LEARNING_RATE,
+        output_dir=config.output,
+        device="auto",
+    )
+    (Path(config.output) / "league").mkdir(parents=True, exist_ok=True)
+    _, final_path = train(ppo_config)
+    return final_path

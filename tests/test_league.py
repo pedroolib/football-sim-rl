@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from qb_sim.training.league import (
     SnapshotPool,
     improved,
     opponent_spec,
+    train_round,
 )
 
 
@@ -156,3 +158,79 @@ def test_improved_uses_the_tolerance_band() -> None:
     assert improved(1.03, 1.00) is False
     assert improved(0.90, 1.00) is False
     assert improved(1.01, 1.00, tolerance=0.0) is True
+
+
+def test_train_round_builds_role_specific_ppo_configs(monkeypatch, tmp_path: Path) -> None:
+    captured = []
+
+    def fake_train(ppo_config):
+        captured.append(ppo_config)
+        return None, Path(ppo_config.output_dir) / ppo_config.run_name / "final_model.zip"
+
+    monkeypatch.setattr("qb_sim.training.train.train", fake_train)
+    config = LeagueConfig(
+        steps=1234,
+        n_envs=3,
+        n_steps=48,
+        eval_episodes=7,
+        seed=10,
+        output=str(tmp_path),
+    )
+    opponents = (("qb", "snapshot.zip"),)
+
+    expected = {
+        "qb": ("drive", "qb"),
+        "wr": ("role_play", "wr1"),
+        "cb": ("role_drive", "cb1"),
+        "ru": ("role_drive", "ru1"),
+    }
+    for role, (env_kind, learner) in expected.items():
+        final_path = train_round(role, config, opponents, round_index=1)
+        ppo_config = captured[-1]
+
+        assert ppo_config.env_kind == env_kind
+        assert ppo_config.learner == learner
+        assert ppo_config.scenario == "stage_b"
+        assert ppo_config.run_name == f"league/r1_{role}"
+        assert ppo_config.total_timesteps == 1234
+        assert ppo_config.opponents == opponents
+        assert ppo_config.randomize_config is False
+        assert ppo_config.imitation_episodes == 300
+        assert ppo_config.imitation_epochs == 800
+        assert ppo_config.imitation_learning_rate == 1e-4
+        assert ppo_config.seed == 11
+        assert ppo_config.device == "auto"
+        assert ppo_config.n_envs == 3
+        assert ppo_config.n_steps == 48
+        assert ppo_config.eval_episodes == 7
+        assert ppo_config.output_dir == str(tmp_path)
+        assert final_path == tmp_path / f"league/r1_{role}" / "final_model.zip"
+
+
+def test_train_round_rejects_unknown_role(tmp_path: Path) -> None:
+    config = LeagueConfig(steps=1, output=str(tmp_path))
+
+    with pytest.raises(ValueError, match="linebacker"):
+        train_round("linebacker", config, (), round_index=0)
+
+
+def test_train_round_smoke_trains_and_writes_config(tmp_path: Path) -> None:
+    config = LeagueConfig(
+        steps=256,
+        n_envs=1,
+        n_steps=64,
+        eval_episodes=1,
+        output=str(tmp_path),
+    )
+    opponents = (("qb", "rules"),)
+
+    final_path = train_round("wr", config, opponents, round_index=0)
+
+    assert final_path == tmp_path / "league" / "r0_wr" / "final_model.zip"
+    assert final_path.is_file()
+    metadata = json.loads((final_path.parent / "config.json").read_text(encoding="utf-8"))
+    assert metadata["opponents"] == [["qb", "rules"]]
+    assert metadata["env_kind"] == "role_play"
+    assert metadata["learner"] == "wr1"
+    assert metadata["seed"] == config.seed
+    assert metadata["run_name"] == "league/r0_wr"
