@@ -17,12 +17,34 @@ from qb_sim.rules.drive import DriveState
 from qb_sim.rules.routes import RouteName
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.actions import decode_action
-from qb_sim.training.drive_observations import drive_observation_from_state
-from qb_sim.training.observations import observation_from_state
+from qb_sim.training.drive_observations import (
+    DRIVE_OBSERVATION_SIZE,
+    drive_observation_from_state,
+)
+from qb_sim.training.observations import OBSERVATION_SIZE, observation_from_state
 from qb_sim.training.role_context_observations import (
+    DEFENDER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_CONTEXT_OBSERVATION_SIZE,
     defender_context_observation,
     receiver_context_observation,
 )
+
+
+def _ensure_observation_size(
+    model: Any,
+    expected: int,
+    role: str,
+    path: str | Path,
+) -> None:
+    """Reject models trained against an older observation layout."""
+    shape = getattr(getattr(model, "observation_space", None), "shape", None)
+    actual = int(shape[0]) if shape else None
+    if actual != expected:
+        raise ValueError(
+            f"{role}: el modelo {path} espera {actual} valores de observación, "
+            f"pero la versión actual genera {expected}. "
+            "Reentrená el modelo o elegí otro."
+        )
 
 
 class PolicyQuarterback:
@@ -167,6 +189,7 @@ def load_policy(path: str | Path, scenario_name: str = "default") -> PolicyQuart
 
     scenario = get_scenario(scenario_name)
     model = PPO.load(str(path), device="auto")
+    _ensure_observation_size(model, OBSERVATION_SIZE, "qb", path)
     return PolicyQuarterback(model, scenario.config)
 
 
@@ -176,6 +199,7 @@ def load_drive_policy(path: str | Path, scenario_name: str = "rushed") -> DriveP
 
     scenario = get_scenario(scenario_name)
     model = PPO.load(str(path), device="auto")
+    _ensure_observation_size(model, DRIVE_OBSERVATION_SIZE, "qb", path)
     return DrivePolicyQuarterback(model, scenario.config)
 
 
@@ -189,6 +213,7 @@ def load_receiver_policy(
 
     scenario = get_scenario(scenario_name)
     model = PPO.load(str(path), device="auto")
+    _ensure_observation_size(model, RECEIVER_CONTEXT_OBSERVATION_SIZE, player_id, path)
     return ReceiverPolicy(model, scenario.config, player_id)
 
 
@@ -202,4 +227,5 @@ def load_defender_policy(
 
     scenario = get_scenario(scenario_name)
     model = PPO.load(str(path), device="auto")
+    _ensure_observation_size(model, DEFENDER_CONTEXT_OBSERVATION_SIZE, player_id, path)
     return DefenderPolicy(model, scenario.config, player_id)

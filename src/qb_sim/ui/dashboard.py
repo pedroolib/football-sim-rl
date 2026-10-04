@@ -10,6 +10,7 @@ import pygame
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.play import Play
 from qb_sim.rules.scenarios import get_scenario
+from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
 from qb_sim.training.monitoring import (
     CompositionDemoPanel,
     DefenderPolicyCallable,
@@ -27,6 +28,10 @@ from qb_sim.training.monitoring import (
     rule_drive_quarterback_policy,
     rule_quarterback_policy,
     total_timesteps,
+)
+from qb_sim.training.role_context_observations import (
+    DEFENDER_CONTEXT_OBSERVATION_SIZE,
+    RECEIVER_CONTEXT_OBSERVATION_SIZE,
 )
 from qb_sim.ui import theme
 from qb_sim.ui.menu import ModelMenu, ParameterMenu
@@ -213,20 +218,27 @@ class TrainingDashboard:
         if qb_model is not None:
             self._model_menu.choose("qb", Path(qb_model).parent.name)
         else:
-            for label in ("trained_roles_v12", "random_routes_v11"):
-                if self._model_menu.choose("qb", label):
-                    break
+            self._model_menu.choose_compatible(
+                "qb",
+                DRIVE_OBSERVATION_SIZE,
+                hints=("ppo_qb_g1", "trained_roles_v12"),
+            )
         defaults = {
-            "wr1": ("route_progress_v1",),
-            "wr2": ("route_progress_v1",),
-            "cb1": ("context_shaping_v1",),
-            "cb2": ("context_shaping_v1",),
-            "ru1": ("bc_parity_v1", "lr5_interception_v1"),
+            "wr1": ("ppo_wr_g1", "route_progress_v1"),
+            "wr2": ("ppo_wr_g1", "route_progress_v1"),
+            "cb1": ("ppo_cb_g1", "context_shaping_v1"),
+            "cb2": ("ppo_cb_g1", "context_shaping_v1"),
+            "ru1": ("ppo_ru_g1", "bc_parity_v1", "lr5_interception_v1"),
+        }
+        sizes = {
+            "wr1": RECEIVER_CONTEXT_OBSERVATION_SIZE,
+            "wr2": RECEIVER_CONTEXT_OBSERVATION_SIZE,
+            "cb1": DEFENDER_CONTEXT_OBSERVATION_SIZE,
+            "cb2": DEFENDER_CONTEXT_OBSERVATION_SIZE,
+            "ru1": DEFENDER_CONTEXT_OBSERVATION_SIZE,
         }
         for role, labels in defaults.items():
-            for label in labels:
-                if self._model_menu.choose(role, label):
-                    break
+            self._model_menu.choose_compatible(role, sizes[role], hints=labels)
 
     def _build_composition_policies(self) -> dict:
         if self._model_menu is None:

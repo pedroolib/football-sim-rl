@@ -1,6 +1,7 @@
 """Pure menu logic for live model selection and simulation parameters."""
 
 import json
+import zipfile
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
@@ -192,6 +193,23 @@ class ModelOption:
 
     label: str
     path: Path | None
+    observation_size: int | None = None
+
+
+def model_observation_size(path: str | Path) -> int | None:
+    """Read the flattened observation size stored inside a saved SB3 model."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            data = json.loads(archive.read("data"))
+        shape = data["observation_space"]["_shape"]
+    except (OSError, KeyError, TypeError, ValueError, zipfile.BadZipFile):
+        return None
+    if not shape:
+        return None
+    size = 1
+    for dimension in shape:
+        size *= int(dimension)
+    return size
 
 
 class ModelMenu:
@@ -228,16 +246,17 @@ class ModelMenu:
                 continue
             kind = metadata.get("env_kind")
             learner = metadata.get("learner")
+            size = model_observation_size(model_path)
             if kind == "drive" and learner == "qb":
-                options["qb"].append(ModelOption(run.name, model_path))
+                options["qb"].append(ModelOption(run.name, model_path, size))
             elif kind == "role_play" and learner in ("wr1", "wr2"):
-                options["wr1"].append(ModelOption(run.name, model_path))
-                options["wr2"].append(ModelOption(run.name, model_path))
+                options["wr1"].append(ModelOption(run.name, model_path, size))
+                options["wr2"].append(ModelOption(run.name, model_path, size))
             elif kind == "role_drive" and learner in ("cb1", "cb2"):
-                options["cb1"].append(ModelOption(run.name, model_path))
-                options["cb2"].append(ModelOption(run.name, model_path))
+                options["cb1"].append(ModelOption(run.name, model_path, size))
+                options["cb2"].append(ModelOption(run.name, model_path, size))
             elif kind == "role_drive" and learner == "ru1":
-                options["ru1"].append(ModelOption(run.name, model_path))
+                options["ru1"].append(ModelOption(run.name, model_path, size))
         return cls(options)
 
     def role(self) -> str:
@@ -265,6 +284,28 @@ class ModelMenu:
         """Select a model by label; return whether it exists."""
         for index, option in enumerate(self.options[role]):
             if option.label == label:
+                self.selection[role] = index
+                return True
+        return False
+
+    def choose_compatible(
+        self,
+        role: str,
+        expected_size: int,
+        hints: tuple[str, ...] = (),
+    ) -> bool:
+        """Select a model whose saved observation matches ``expected_size``.
+
+        Hinted labels win when compatible; otherwise the first compatible
+        option is used. Returns whether a model was selected.
+        """
+        for label in hints:
+            for index, option in enumerate(self.options[role]):
+                if option.label == label and option.observation_size == expected_size:
+                    self.selection[role] = index
+                    return True
+        for index, option in enumerate(self.options[role]):
+            if option.observation_size == expected_size:
                 self.selection[role] = index
                 return True
         return False

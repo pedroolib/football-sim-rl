@@ -1,9 +1,15 @@
 import json
+import zipfile
 from pathlib import Path
 
 from qb_sim.config import SimulationConfig
 from qb_sim.rules.drive import DriveConfig
-from qb_sim.ui.menu import ModelMenu, ParameterMenu
+from qb_sim.ui.menu import (
+    ModelMenu,
+    ModelOption,
+    ParameterMenu,
+    model_observation_size,
+)
 
 
 def test_parameter_menu_lists_numeric_config_fields() -> None:
@@ -145,3 +151,68 @@ def test_model_menu_paths_reflect_choices(tmp_path) -> None:
     paths = ModelMenu.discover(tmp_path).paths()
     assert paths["qb"] is None
     assert Path("missing") not in [path for path in paths.values() if path is not None]
+
+
+def _fake_model(path, size: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "data",
+            json.dumps({"observation_space": {"_shape": [size]}}),
+        )
+
+
+def test_model_observation_size_reads_the_saved_space(tmp_path) -> None:
+    model = tmp_path / "final_model.zip"
+    _fake_model(model, 35)
+    assert model_observation_size(model) == 35
+
+
+def test_model_observation_size_returns_none_for_a_broken_zip(tmp_path) -> None:
+    model = tmp_path / "final_model.zip"
+    model.write_text("not a zip")
+    assert model_observation_size(model) is None
+
+
+def test_discover_annotates_the_observation_size(tmp_path) -> None:
+    run = tmp_path / "wr" / "route_progress_v1"
+    _fake_model(run / "final_model.zip", 31)
+    (run / "config.json").write_text(
+        json.dumps({"env_kind": "role_play", "learner": "wr1"}),
+        encoding="utf-8",
+    )
+    menu = ModelMenu.discover(tmp_path)
+    sizes = {option.label: option.observation_size for option in menu.options["wr1"]}
+    assert sizes["route_progress_v1"] == 31
+
+
+def test_choose_compatible_skips_models_with_the_wrong_size() -> None:
+    menu = ModelMenu(
+        {
+            role: [
+                ModelOption("reglas", None),
+                ModelOption("old", None, observation_size=31),
+                ModelOption("new", None, observation_size=35),
+            ]
+            for role in ModelMenu.ROLES
+        }
+    )
+    assert menu.choose_compatible("wr1", 35, hints=("old",))
+    assert menu.current("wr1").label == "new"
+    assert not menu.choose_compatible("qb", 61)
+    assert menu.current("qb").label == "reglas"
+
+
+def test_choose_compatible_honors_the_hint_when_sizes_match() -> None:
+    menu = ModelMenu(
+        {
+            role: [
+                ModelOption("reglas", None),
+                ModelOption("hinted", None, observation_size=35),
+                ModelOption("other", None, observation_size=35),
+            ]
+            for role in ModelMenu.ROLES
+        }
+    )
+    assert menu.choose_compatible("wr1", 35, hints=("other",))
+    assert menu.current("wr1").label == "other"
