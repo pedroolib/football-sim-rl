@@ -202,6 +202,26 @@ def test_randomized_drive_env_applies_sampled_config() -> None:
     )
 
 
+class _RecordingConfigOpponent:
+    def __init__(self) -> None:
+        self.configs: list = []
+
+    def set_config(self, config) -> None:
+        self.configs.append(config)
+
+    def __call__(self, state, route, start=None):
+        return None
+
+
+def test_randomized_drive_env_injects_the_active_config_into_opponents() -> None:
+    opponent = _RecordingConfigOpponent()
+    env = QBDriveEnv(opponents={"wr1": opponent}, randomization=AdaptationRanges())
+    env.reset(seed=5)
+
+    assert opponent.configs
+    assert opponent.configs[-1] is env.active_config
+
+
 def test_randomized_drive_env_is_deterministic_for_a_seed() -> None:
     first = QBDriveEnv(randomization=AdaptationRanges())
     second = QBDriveEnv(randomization=AdaptationRanges())

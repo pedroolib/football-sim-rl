@@ -224,6 +224,10 @@ class HeuristicQuarterback(BaseAgent):
         self._throw_after_seconds = throw_after_seconds
         self._min_throw_seconds = min_throw_seconds
 
+    def set_config(self, config: SimulationConfig) -> None:
+        """Replace the embedded config (used when the episode is randomized)."""
+        self._config = config
+
     def observe(self, state: PlayState) -> QuarterbackObservation:
         me = state.player(self.player_id)
         receivers = tuple(

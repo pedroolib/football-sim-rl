@@ -26,7 +26,7 @@ from qb_sim.training.drive_observations import (
 )
 from qb_sim.training.randomization import AdaptationRanges, sample_adaptation_config
 from qb_sim.training.rewards import DriveRewardConfig, drive_result_reward
-from qb_sim.training.role_env import decide_player_action
+from qb_sim.training.role_env import decide_player_action, inject_active_config
 
 
 class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -87,7 +87,7 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             return self.scenario.config
         return sample_adaptation_config(
             self.scenario.config,
-            np.random.default_rng(self._episode_seed),
+            np.random.default_rng(self._episode_seed + 1_000_003),
             self._curriculum_progress,
             self.randomization,
         )
@@ -105,6 +105,7 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         else:
             self._episode_seed = int(self.np_random.integers(0, 2**31 - 1))
         self._active_config = self._sample_config()
+        inject_active_config(self.opponents, self._active_config)
         self.drive = Drive(self._active_config, self.drive_config, seed=self._episode_seed)
         self.play_history = []
         self._steps = 0

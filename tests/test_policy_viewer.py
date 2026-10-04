@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -88,6 +89,18 @@ def test_receiver_policy_builds_the_35_float_observation() -> None:
     assert model.observation_shape == (35,)
     assert action is not None
     assert action.direction.tolist() == pytest.approx([1.0, 0.0])
+
+
+def test_receiver_policy_set_config_updates_the_observation() -> None:
+    play = Play()
+    model = _RecordingModel([1.0, 0.0])
+    policy = ReceiverPolicy(model, play.config, "wr1")
+
+    policy.set_config(replace(play.config, throw_max_range=30.0))
+    policy(play.state, RouteName.POST)
+
+    assert model.observation is not None
+    assert model.observation[33] == pytest.approx(30.0 / 50.0)
 
 
 def test_receiver_policy_forwards_the_start_override() -> None:

@@ -32,6 +32,10 @@ class PolicyQuarterback:
         self._model = model
         self._config = config
 
+    def set_config(self, config: SimulationConfig) -> None:
+        """Replace the embedded config (used when the episode is randomized)."""
+        self._config = config
+
     def __call__(self, state: PlayState) -> Move | Throw | None:
         observation = observation_from_state(state, self._config)
         action, _ = self._model.predict(observation, deterministic=True)
@@ -50,6 +54,10 @@ class DrivePolicyQuarterback:
         self._model = model
         self._config = config
         self._goal_line = float(goal_line)
+
+    def set_config(self, config: SimulationConfig) -> None:
+        """Replace the embedded config (used when the episode is randomized)."""
+        self._config = config
 
     def __call__(
         self,
@@ -94,6 +102,10 @@ class ReceiverPolicy:
         self._player_id = player_id
         self._goal_line = float(goal_line)
 
+    def set_config(self, config: SimulationConfig) -> None:
+        """Replace the embedded config (used when the episode is randomized)."""
+        self._config = config
+
     def __call__(
         self,
         state: PlayState,
@@ -126,6 +138,10 @@ class DefenderPolicy:
         self._config = config
         self._player_id = player_id
         self._goal_line = float(goal_line)
+
+    def set_config(self, config: SimulationConfig) -> None:
+        """Replace the embedded config (used when the episode is randomized)."""
+        self._config = config
 
     def __call__(
         self,

@@ -75,6 +75,14 @@ def decide_player_action(
     return policy(play.state, defender_target(play, player_id), drive_state)
 
 
+def inject_active_config(opponents: Mapping[str, Any], config: SimulationConfig) -> None:
+    """Push the episode config into opponents that embed their own config."""
+    for opponent in opponents.values():
+        setter = getattr(opponent, "set_config", None)
+        if setter is not None:
+            setter(config)
+
+
 def _decode_move(action: np.ndarray) -> Move | None:
     values = np.asarray(action, dtype=np.float64).reshape(-1)
     if values.shape != (MOVE_ACTION_SIZE,):
@@ -108,8 +116,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         self.scenario = scenario if scenario is not None else STAGE_B_SCENARIO
         self.learner_id = learner_id
         self.opponents = dict(opponents or {})
-        self._default_qb = "qb" not in self.opponents
-        if self._default_qb:
+        if "qb" not in self.opponents:
             self.opponents["qb"] = HeuristicQuarterback("qb", self.scenario.config)
         self.randomization = randomization
         self._curriculum_progress = 0.0
@@ -183,7 +190,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
             return self.scenario.config
         return sample_adaptation_config(
             self.scenario.config,
-            np.random.default_rng(self._episode_seed),
+            np.random.default_rng(self._episode_seed + 1_000_003),
             self._curriculum_progress,
             self.randomization,
         )
@@ -191,6 +198,7 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
     def _setup_episode(self) -> None:
         config = self._sample_config()
         self._active_config = config
+        inject_active_config(self.opponents, config)
         rng = np.random.default_rng(self._episode_seed)
         low, high = self.los_range
         los = float(rng.uniform(low, high))
@@ -202,8 +210,6 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
             goal_line=self.goal_line,
         )
         self._drive_context.los = los
-        if self._default_qb and self.randomization is not None:
-            self.opponents["qb"] = HeuristicQuarterback("qb", config)
         self._agents = build_rule_agents(
             self.play,
             self.routes,
@@ -398,7 +404,7 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             return self.scenario.config
         return sample_adaptation_config(
             self.scenario.config,
-            np.random.default_rng(self._episode_seed),
+            np.random.default_rng(self._episode_seed + 1_000_003),
             self._curriculum_progress,
             self.randomization,
         )
@@ -423,6 +429,7 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         else:
             self._episode_seed = int(self.np_random.integers(0, 2**31 - 1))
         self._active_config = self._sample_config()
+        inject_active_config(self.opponents, self._active_config)
         self.drive = Drive(self._active_config, self.drive_config, seed=self._episode_seed)
         self.play_history = []
         self._steps = 0

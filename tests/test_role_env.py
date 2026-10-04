@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from gymnasium.utils.env_checker import check_env
 
+from qb_sim.agents.rule_controllers import HeuristicQuarterback
 from qb_sim.engine.actions import Throw
 from qb_sim.engine.entities import BallStatus
 from qb_sim.engine.geometry import vec2
@@ -111,6 +112,53 @@ def test_role_drive_randomization_applies_sampled_config() -> None:
     assert env.play.state.player("wr1").max_speed == pytest.approx(
         env.active_config.receiver_speed
     )
+
+
+def test_sampled_capabilities_do_not_follow_the_los() -> None:
+    env = RolePlayEnv(randomization=AdaptationRanges())
+    pairs = []
+    for seed in range(8):
+        env.reset(seed=seed)
+        pairs.append((env.play.line_of_scrimmage, env.active_config.receiver_speed))
+    speeds_by_los = [speed for _, speed in sorted(pairs)]
+    assert speeds_by_los != sorted(speeds_by_los)  # not a monotone function of the LOS
+
+
+class _RecordingConfigOpponent:
+    def __init__(self) -> None:
+        self.configs: list = []
+
+    def set_config(self, config) -> None:
+        self.configs.append(config)
+
+    def __call__(self, state, route, start=None):
+        return None
+
+
+def test_randomized_env_injects_the_active_config_into_opponents() -> None:
+    opponent = _RecordingConfigOpponent()
+    env = RolePlayEnv(opponents={"wr2": opponent}, randomization=AdaptationRanges())
+    env.reset(seed=5)
+
+    assert opponent.configs
+    assert opponent.configs[-1] is env.active_config
+
+
+def test_randomized_env_updates_an_explicit_rule_qb_config() -> None:
+    qb = HeuristicQuarterback("qb", RolePlayEnv().scenario.config)
+    env = RolePlayEnv(opponents={"qb": qb}, randomization=AdaptationRanges())
+    env.reset(seed=5)
+
+    assert qb._config is env.active_config
+
+
+def test_role_drive_injects_the_active_config_into_opponents() -> None:
+    opponent = _RecordingConfigOpponent()
+    env = RoleDriveEnv(opponents={"wr1": opponent}, randomization=AdaptationRanges())
+    env.reset(seed=5)
+
+    assert opponent.configs
+    assert opponent.configs[-1] is env.active_config
 
 
 def test_role_play_rejects_an_los_range_below_the_formation_floor() -> None:
