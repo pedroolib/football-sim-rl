@@ -201,7 +201,7 @@ class Drive:
         goal_line = self.drive_config.goal_line
         if outcome is PlayOutcome.TOUCHDOWN:
             return goal_line
-        if outcome is PlayOutcome.COMPLETED and state.carrier_id is not None:
+        if outcome in (PlayOutcome.COMPLETED, PlayOutcome.RUSH) and state.carrier_id is not None:
             carrier_x = float(state.player(state.carrier_id).position[0])
             return float(min(max(carrier_x, 0.0), goal_line))
         if outcome is PlayOutcome.SACK:

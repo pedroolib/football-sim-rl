@@ -234,7 +234,7 @@ def test_same_config_and_action_sequence_produce_identical_traces() -> None:
 
     def run(play: Play, agents) -> None:
         for _ in range(20):
-            _step(play, agents, Move(direction=vec2(1.0, 0.0)))
+            _step(play, agents, Move(direction=vec2(0.0, 1.0)))
         for _ in range(10):
             _step(play, agents)
         _step(play, agents, Throw(direction=vec2(1.0, 0.0), power=1.0))

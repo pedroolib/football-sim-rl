@@ -258,6 +258,9 @@ class Play:
         }
         self._apply_actions(actions or {}, dt)
 
+        if self.state.ball.status is BallStatus.HELD and self._quarterback_past_the_line():
+            self._start_qb_run()
+
         if (
             self._goal_line is not None
             and self.state.ball.status is BallStatus.HELD
@@ -348,6 +351,24 @@ class Play:
             for defender_id in self._defender_ids
         )
 
+    def _quarterback_past_the_line(self) -> bool:
+        return float(self.state.player(_QB_ID).position[0]) > self._line_of_scrimmage
+
+    def _start_qb_run(self) -> None:
+        """Convert a quarterback past the line of scrimmage into the carrier.
+
+        Once the quarterback crosses the line he stays a runner for the rest of
+        the play, even if he later retreats behind it: defenders then resolve
+        the play as ``RUSH`` (with negative yards if he loses ground) instead of
+        a sack, and a throw is no longer legal.
+        """
+        quarterback = self.state.player(_QB_ID)
+        self.state.carrier_id = _QB_ID
+        self.state.ball.status = BallStatus.CARRIED
+        self.state.ball.target = None
+        self.state.ball.height = 0.0
+        self.state.ball.position = quarterback.position.copy()
+
     def _touchdown_reached(self, player: PlayerState) -> bool:
         return self._goal_line is not None and float(player.position[0]) >= self._goal_line
 
@@ -356,13 +377,16 @@ class Play:
         if self._touchdown_reached(carrier):
             self._finish(PlayOutcome.TOUCHDOWN)
             return
+        tackle_outcome = (
+            PlayOutcome.RUSH if self.state.carrier_id == _QB_ID else PlayOutcome.COMPLETED
+        )
         for defender_id in self._defender_ids:
             defender = self.state.player(defender_id)
             if distance(defender.position, carrier.position) <= self.config.tackle_radius:
-                self._finish(PlayOutcome.COMPLETED)
+                self._finish(tackle_outcome)
                 return
         if not self.config.field.contains(carrier.position):
-            self._finish(PlayOutcome.COMPLETED)
+            self._finish(tackle_outcome)
 
     def _advance_pass(self, dt: float, previous_positions: dict[str, Vector2]) -> float:
         """Advance the ball and return the fraction of ``dt`` the play consumed."""
@@ -477,7 +501,9 @@ class Play:
         self.state.ball.position = self.state.player(player_id).position.copy()
 
     def _finish_expired_play(self) -> None:
-        if self.state.carrier_id is not None:
+        if self.state.carrier_id == _QB_ID:
+            self._finish(PlayOutcome.RUSH)
+        elif self.state.carrier_id is not None:
             self._finish(PlayOutcome.COMPLETED)
         else:
             self._finish(PlayOutcome.TIME_LIMIT)

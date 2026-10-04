@@ -215,7 +215,7 @@ def test_run_composition_episode_records_pre_step_pressure_at_throw() -> None:
         if observed["throwing"]:
             return throw_action
         move = np.zeros(6, dtype=np.float32)
-        move[0] = 1.0
+        move[0] = -1.0
         return move
 
     env = QBDriveEnv(scenario)

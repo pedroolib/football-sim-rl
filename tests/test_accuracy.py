@@ -55,7 +55,7 @@ def _mean_angle_error(
     for seed in seeds:
         play = Play(scenario, seed=seed)
         if moving:
-            play.step({"qb": Move(direction=vec2(1.0, 0.0))})
+            play.step({"qb": Move(direction=vec2(-1.0, 0.0))})
         play.throw_to(vec2(target, 26.65))
         errors.append(_angle_error_degrees(play, vec2(1.0, 0.0)))
     return float(np.mean(errors))
