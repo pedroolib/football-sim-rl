@@ -5,14 +5,27 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import qb_sim.training.league as league
+from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.league import (
     ROLE_OPPONENTS,
     LeagueConfig,
     SnapshotPool,
+    evaluate_league,
     improved,
+    league_row,
+    load_role_policies,
     opponent_spec,
     train_round,
 )
+
+B2_MODELS = {
+    "qb": Path("runs/qb/drive/adaptation_g1/final_model.zip"),
+    "wr": Path("runs/wr/adaptation_g1/final_model.zip"),
+    "cb": Path("runs/cb/adaptation_g1/final_model.zip"),
+    "ru": Path("runs/ru/adaptation_g1/final_model.zip"),
+}
+B2_AVAILABLE = all(path.is_file() for path in B2_MODELS.values())
 
 
 def _write_snapshot(path: Path, mtime_ns: int) -> Path:
@@ -234,3 +247,143 @@ def test_train_round_smoke_trains_and_writes_config(tmp_path: Path) -> None:
     assert metadata["learner"] == "wr1"
     assert metadata["seed"] == config.seed
     assert metadata["run_name"] == "league/r0_wr"
+
+
+def test_load_role_policies_maps_state_paths_to_roster_players(monkeypatch) -> None:
+    calls = []
+
+    def fake_drive(path, scenario_name):
+        calls.append(("drive", path, scenario_name))
+        return f"drive:{path}"
+
+    def fake_receiver(path, scenario_name, player_id):
+        calls.append(("receiver", path, scenario_name, player_id))
+        return f"receiver:{player_id}"
+
+    def fake_defender(path, scenario_name, player_id):
+        calls.append(("defender", path, scenario_name, player_id))
+        return f"defender:{player_id}"
+
+    monkeypatch.setattr(league, "load_drive_policy", fake_drive)
+    monkeypatch.setattr(league, "load_receiver_policy", fake_receiver)
+    monkeypatch.setattr(league, "load_defender_policy", fake_defender)
+
+    state = {"qb": "qb.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
+    policies = load_role_policies(state, "stage_b")
+
+    assert policies == {
+        "qb": "drive:qb.zip",
+        "wr1": "receiver:wr1",
+        "wr2": "receiver:wr2",
+        "cb1": "defender:cb1",
+        "cb2": "defender:cb2",
+        "ru1": "defender:ru1",
+    }
+    assert ("drive", "qb.zip", "stage_b") in calls
+    assert ("receiver", "wr.zip", "stage_b", "wr1") in calls
+    assert ("receiver", "wr.zip", "stage_b", "wr2") in calls
+    assert ("defender", "cb.zip", "stage_b", "cb1") in calls
+    assert ("defender", "cb.zip", "stage_b", "cb2") in calls
+    assert ("defender", "ru.zip", "stage_b", "ru1") in calls
+
+
+def test_evaluate_league_runs_learned_and_rule_compositions(monkeypatch) -> None:
+    envs = []
+    runs = []
+    summaries = []
+    rule_configs = []
+
+    class FakeEnv:
+        def __init__(self, scenario, opponents=None):
+            self.scenario = scenario
+            self.opponents = opponents
+            envs.append(self)
+
+        def close(self):
+            pass
+
+    class FakePolicy:
+        def __init__(self, path):
+            self.path = path
+
+    rule_policy = object()
+    learned_policies = {
+        "qb": object(),
+        "wr1": object(),
+        "wr2": object(),
+        "cb1": object(),
+        "cb2": object(),
+        "ru1": object(),
+    }
+    monkeypatch.setattr(league, "QBDriveEnv", FakeEnv)
+    monkeypatch.setattr(league, "PPOActionPolicy", FakePolicy)
+    monkeypatch.setattr(
+        league,
+        "RuleQuarterbackPolicy",
+        lambda config: rule_configs.append(config) or rule_policy,
+    )
+    monkeypatch.setattr(league, "load_role_policies", lambda state, name: dict(learned_policies))
+    monkeypatch.setattr(
+        league,
+        "run_composition_episode",
+        lambda env, policy, seed: runs.append((env, policy, seed)) or {"fake": True},
+    )
+    monkeypatch.setattr(
+        league,
+        "summarize_composition",
+        lambda results: summaries.append(list(results)) or {"points_per_drive": 1.0},
+    )
+
+    state = {"qb": "qb.zip", "wr": "wr.zip", "cb": "cb.zip", "ru": "ru.zip"}
+    report = evaluate_league(state, LeagueConfig(eval_episodes=2, eval_seed_start=500))
+
+    assert report == {
+        "learned": {"points_per_drive": 1.0},
+        "rules": {"points_per_drive": 1.0},
+    }
+    assert [seed for _, _, seed in runs] == [500, 501, 500, 501]
+    assert runs[0][1].path == "qb.zip"
+    assert runs[2][1] is rule_policy
+    assert runs[3][1] is rule_policy
+    assert envs[0].scenario.name == "stage_b"
+    assert set(envs[0].opponents) == {"wr1", "wr2", "cb1", "cb2", "ru1"}
+    assert envs[0].opponents["wr1"] is learned_policies["wr1"]
+    assert envs[1].opponents == {}
+    assert rule_configs == [get_scenario("stage_b").config]
+    assert [len(batch) for batch in summaries] == [2, 2]
+
+
+def test_league_row_records_metrics_and_improvement() -> None:
+    learned = {"points_per_drive": 2.0, "touchdown_pct": 30.0}
+    rules = {"points_per_drive": 1.5, "touchdown_pct": 20.0}
+    opponents = (("wr1", "wr_snap.zip"), ("cb1", "cb_snap.zip"))
+
+    row = league_row(3, "qb", opponents, learned, rules, previous_points=None)
+
+    assert row["round"] == 3
+    assert row["role"] == "qb"
+    assert row["opponents"] == {"wr1": "wr_snap.zip", "cb1": "cb_snap.zip"}
+    assert row["learned"] == learned
+    assert row["rules"] == rules
+    assert row["improved"] is True
+
+    inside = league_row(3, "qb", opponents, learned, rules, previous_points=2.0)
+    beyond = league_row(3, "qb", opponents, learned, rules, previous_points=1.90)
+    assert inside["improved"] is False
+    assert beyond["improved"] is True
+
+
+@pytest.mark.skipif(not B2_AVAILABLE, reason="B2 generalized models are not present")
+def test_evaluate_league_with_the_b2_models() -> None:
+    state = {role: str(path) for role, path in B2_MODELS.items()}
+
+    report = evaluate_league(state, LeagueConfig(eval_episodes=2, eval_seed_start=10_000))
+
+    assert set(report) == {"learned", "rules"}
+    for summary in report.values():
+        assert summary["episodes"] == 2.0
+        assert summary["points_per_drive"] is not None
+        assert summary["touchdown_pct"] in {0.0, 50.0, 100.0}
+
+    row = league_row(0, "qb", (), report["learned"], report["rules"], previous_points=None)
+    assert row["improved"] is True

@@ -4,10 +4,20 @@ import dataclasses
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from qb_sim.rules.scenarios import get_scenario
+from qb_sim.training.drive_env import QBDriveEnv
+from qb_sim.training.evaluation import PPOActionPolicy, RuleQuarterbackPolicy
+from qb_sim.training.policy import (
+    load_defender_policy,
+    load_drive_policy,
+    load_receiver_policy,
+)
 from qb_sim.training.ppo_config import PPOConfig
+from qb_sim.training.role_evaluation import run_composition_episode, summarize_composition
 
 ROLE_OPPONENTS: dict[str, tuple[str, ...]] = {
     "qb": ("wr1", "wr2", "cb1", "cb2", "ru1"),
@@ -153,3 +163,58 @@ def train_round(
     (Path(config.output) / "league").mkdir(parents=True, exist_ok=True)
     _, final_path = train(ppo_config)
     return final_path
+
+
+def load_role_policies(state: dict[str, str], scenario_name: str) -> dict[str, object]:
+    """Load the current learned policy for every roster player."""
+    return {
+        "qb": load_drive_policy(state["qb"], scenario_name),
+        "wr1": load_receiver_policy(state["wr"], scenario_name, "wr1"),
+        "wr2": load_receiver_policy(state["wr"], scenario_name, "wr2"),
+        "cb1": load_defender_policy(state["cb"], scenario_name, "cb1"),
+        "cb2": load_defender_policy(state["cb"], scenario_name, "cb2"),
+        "ru1": load_defender_policy(state["ru"], scenario_name, "ru1"),
+    }
+
+
+def evaluate_league(state: dict[str, str], config: LeagueConfig) -> dict:
+    """Evaluate the learned composition and the rule baseline on the same seeds."""
+    scenario = get_scenario(config.scenario)
+    seeds = range(config.eval_seed_start, config.eval_seed_start + config.eval_episodes)
+    policies = load_role_policies(state, config.scenario)
+    learned_opponents = {
+        player_id: policy for player_id, policy in policies.items() if player_id != "qb"
+    }
+    learned_env = QBDriveEnv(scenario, opponents=learned_opponents)
+    learned_results = [
+        run_composition_episode(learned_env, PPOActionPolicy(state["qb"]), seed) for seed in seeds
+    ]
+    learned_env.close()
+
+    rules_env = QBDriveEnv(scenario, opponents={})
+    rules_policy = RuleQuarterbackPolicy(scenario.config)
+    rules_results = [run_composition_episode(rules_env, rules_policy, seed) for seed in seeds]
+    rules_env.close()
+    return {
+        "learned": summarize_composition(learned_results),
+        "rules": summarize_composition(rules_results),
+    }
+
+
+def league_row(
+    round_index: int,
+    role: str,
+    opponents: tuple[tuple[str, str], ...],
+    learned: dict[str, Any],
+    rules: dict[str, Any],
+    previous_points: float | None,
+) -> dict:
+    """Build one league table row with metrics and the improvement flag."""
+    return {
+        "round": round_index,
+        "role": role,
+        "opponents": dict(opponents),
+        "learned": learned,
+        "rules": rules,
+        "improved": improved(learned["points_per_drive"], previous_points),
+    }
