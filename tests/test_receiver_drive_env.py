@@ -29,7 +29,7 @@ def test_receiver_drive_reward_config_defaults() -> None:
 
     assert config.separation_bonus == pytest.approx(0.3)
     assert config.separation_threshold == pytest.approx(3.0)
-    assert config.separation_shaping is False
+    assert config.separation_shaping is True
     assert config.shaping_gamma == pytest.approx(0.99)
     assert config.shaping_scale == pytest.approx(5.0)
 

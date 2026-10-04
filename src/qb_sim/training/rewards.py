@@ -92,7 +92,7 @@ class ReceiverDriveRewardConfig:
     receiver: ReceiverRewardConfig = field(default_factory=ReceiverRewardConfig)
     separation_bonus: float = 0.3
     separation_threshold: float = 3.0
-    separation_shaping: bool = False
+    separation_shaping: bool = True
     shaping_gamma: float = 0.99
     shaping_scale: float = 5.0
 

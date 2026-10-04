@@ -41,7 +41,14 @@ def _next_route_waypoint(
 ) -> Vector2 | None:
     if route is None:
         return None
-    built = build_route(route, start, config.field, config)
+    max_depth_yards = max(5.0, 0.85 * config.throw_max_range)
+    built = build_route(
+        route,
+        start,
+        config.field,
+        config,
+        max_depth_yards=max_depth_yards,
+    )
     previous = start
     for waypoint in built.waypoints:
         segment = waypoint - previous
