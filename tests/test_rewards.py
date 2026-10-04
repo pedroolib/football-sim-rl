@@ -9,6 +9,8 @@ from qb_sim.training.rewards import (
     defender_drive_reward,
     defender_potential,
     drive_result_reward,
+    progress_potential,
+    progress_shaping,
     receiver_result_reward,
     terminal_reward,
 )
@@ -67,7 +69,7 @@ def test_drive_reward_includes_the_first_down_bonus() -> None:
         throw_distance=12.0,
     )
 
-    reward = drive_result_reward(result, DriveRewardConfig())
+    reward = drive_result_reward(result, DriveRewardConfig(progress_scale=0.0))
 
     assert reward == pytest.approx(1.0 + 5.0 * 0.02 + 0.3)
 
@@ -85,7 +87,9 @@ def test_drive_reward_pays_the_touchdown_points() -> None:
         throw_distance=20.0,
     )
 
-    assert drive_result_reward(result, DriveRewardConfig()) == pytest.approx(7.0)
+    assert drive_result_reward(result, DriveRewardConfig(progress_scale=0.0)) == pytest.approx(
+        7.0
+    )
 
 
 def test_drive_reward_penalizes_turnover_on_downs() -> None:
@@ -101,7 +105,9 @@ def test_drive_reward_penalizes_turnover_on_downs() -> None:
         throw_distance=None,
     )
 
-    assert drive_result_reward(result, DriveRewardConfig()) == pytest.approx(-0.2 - 0.5)
+    assert drive_result_reward(
+        result, DriveRewardConfig(progress_scale=0.0)
+    ) == pytest.approx(-0.2 - 0.5)
 
 
 def test_drive_reward_maps_a_coverage_sack_to_the_sack_coefficient() -> None:
@@ -118,7 +124,9 @@ def test_drive_reward_maps_a_coverage_sack_to_the_sack_coefficient() -> None:
         coverage_sack=True,
     )
 
-    assert drive_result_reward(result, DriveRewardConfig()) == pytest.approx(-1.0)
+    assert drive_result_reward(
+        result, DriveRewardConfig(progress_scale=0.0)
+    ) == pytest.approx(-1.0)
 
 
 def test_receiver_reward_config_defaults_to_dense_carry_progress() -> None:
@@ -139,7 +147,7 @@ def test_receiver_reward_keeps_terminal_penalties() -> None:
     config = ReceiverRewardConfig()
 
     assert receiver_result_reward(PlayOutcome.INTERCEPTION, 0.0, False, config) == pytest.approx(
-        -1.0
+        -2.0
     )
 
 
@@ -172,9 +180,9 @@ def test_defender_reward_is_the_negated_drive_result_reward() -> None:
         throw_distance=12.0,
     )
 
-    assert defender_drive_reward(result, DriveRewardConfig()) == pytest.approx(
-        -(1.0 + 12.0 * 0.02 + 0.3)
-    )
+    assert defender_drive_reward(
+        result, DriveRewardConfig(progress_scale=0.0)
+    ) == pytest.approx(-(1.0 + 12.0 * 0.02 + 0.3))
 
 
 def test_defender_potential_is_bounded_and_monotone() -> None:
@@ -187,3 +195,134 @@ def test_defender_potential_is_bounded_and_monotone() -> None:
         defender_potential(1.0, scale=0.0)
     with pytest.raises(ValueError):
         defender_potential(1.0, scale=-1.0)
+
+
+def test_default_interception_is_worse_than_a_sack() -> None:
+    config = RewardConfig()
+
+    assert terminal_reward(PlayOutcome.INTERCEPTION, 0.0, config) == pytest.approx(-2.0)
+    assert config.interception < config.sack
+
+
+def test_terminal_reward_pays_rush_yards() -> None:
+    config = RewardConfig()
+
+    assert terminal_reward(PlayOutcome.RUSH, 10.0, config) == pytest.approx(0.5)
+    assert terminal_reward(PlayOutcome.RUSH, -4.0, config) == pytest.approx(-0.2)
+
+
+def test_progress_potential_is_monotone_bounded_and_quadratic() -> None:
+    assert progress_potential(-5.0, 100.0, 1.0) == 0.0
+    assert progress_potential(0.0, 100.0, 1.0) == 0.0
+    assert progress_potential(25.0, 100.0, 1.0) == pytest.approx(0.0625)
+    assert progress_potential(50.0, 100.0, 1.0) == pytest.approx(0.25)
+    assert progress_potential(100.0, 100.0, 1.0) == pytest.approx(1.0)
+    assert progress_potential(150.0, 100.0, 1.0) == pytest.approx(1.0)
+    assert progress_potential(25.0, 100.0, 1.0) < progress_potential(50.0, 100.0, 1.0)
+    assert progress_potential(50.0, 100.0, 2.0) == pytest.approx(0.5)
+
+
+def test_progress_shaping_telescopes_over_field_advances() -> None:
+    spots = [35.0, 40.0, 55.0, 70.0]
+    los_before = [25.0, *spots[:-1]]
+
+    shaped = sum(
+        progress_shaping(before, spot, 100.0, 1.0, 1.0)
+        for before, spot in zip(los_before, spots, strict=True)
+    )
+    expected = progress_potential(70.0, 100.0, 1.0) - progress_potential(25.0, 100.0, 1.0)
+
+    assert shaped == pytest.approx(expected, abs=1e-9)
+
+
+def test_progress_shaping_is_disabled_for_non_positive_scale() -> None:
+    assert progress_shaping(25.0, 80.0, 100.0, 0.0, 0.99) == 0.0
+    assert progress_shaping(25.0, 80.0, 100.0, -1.0, 0.99) == 0.0
+
+
+def test_drive_result_reward_applies_progress_shaping() -> None:
+    result = PlayResult(
+        outcome=PlayOutcome.COMPLETED,
+        spot=60.0,
+        yards=10.0,
+        first_down=False,
+        touchdown=False,
+        drive_over=False,
+        end_reason=None,
+        points=0.0,
+        throw_distance=12.0,
+    )
+
+    plain = drive_result_reward(result, DriveRewardConfig(progress_scale=0.0))
+    shaped = drive_result_reward(result, DriveRewardConfig())
+    expected = 0.99 * progress_potential(60.0, 100.0, 1.0) - progress_potential(
+        50.0, 100.0, 1.0
+    )
+
+    assert shaped - plain == pytest.approx(expected)
+
+
+def test_drive_result_reward_shaping_uses_the_goal_line() -> None:
+    result = PlayResult(
+        outcome=PlayOutcome.COMPLETED,
+        spot=40.0,
+        yards=10.0,
+        first_down=False,
+        touchdown=False,
+        drive_over=False,
+        end_reason=None,
+        points=0.0,
+        throw_distance=12.0,
+    )
+
+    plain = drive_result_reward(
+        result, DriveRewardConfig(progress_scale=0.0), goal_line=50.0
+    )
+    shaped = drive_result_reward(result, DriveRewardConfig(), goal_line=50.0)
+    expected = 0.99 * progress_potential(40.0, 50.0, 1.0) - progress_potential(
+        30.0, 50.0, 1.0
+    )
+
+    assert shaped - plain == pytest.approx(expected)
+
+
+def test_drive_result_reward_pays_rush_yards_plus_shaping() -> None:
+    result = PlayResult(
+        outcome=PlayOutcome.RUSH,
+        spot=40.0,
+        yards=10.0,
+        first_down=False,
+        touchdown=False,
+        drive_over=False,
+        end_reason=None,
+        points=0.0,
+        throw_distance=None,
+    )
+
+    reward = drive_result_reward(result, DriveRewardConfig())
+    shaping = 0.99 * progress_potential(40.0, 100.0, 1.0) - progress_potential(
+        30.0, 100.0, 1.0
+    )
+
+    assert reward == pytest.approx(10.0 * 0.05 + shaping)
+
+
+def test_defender_drive_reward_keeps_zero_sum_with_progress_shaping() -> None:
+    result = PlayResult(
+        outcome=PlayOutcome.COMPLETED,
+        spot=60.0,
+        yards=10.0,
+        first_down=True,
+        touchdown=False,
+        drive_over=False,
+        end_reason=None,
+        points=0.0,
+        throw_distance=12.0,
+    )
+    config = DriveRewardConfig()
+
+    assert defender_drive_reward(result, config) == pytest.approx(
+        -drive_result_reward(result, config)
+    )
+    plain = -drive_result_reward(result, DriveRewardConfig(progress_scale=0.0))
+    assert defender_drive_reward(result, config) != pytest.approx(plain)

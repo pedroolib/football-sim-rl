@@ -10,6 +10,7 @@ from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.receiver_drive_env import ReceiverDriveEnv
 from qb_sim.training.rewards import (
     ReceiverDriveRewardConfig,
+    progress_shaping,
     receiver_drive_reward,
     receiver_result_reward,
     receiver_separation_potential,
@@ -32,6 +33,8 @@ def test_receiver_drive_reward_config_defaults() -> None:
     assert config.separation_shaping is True
     assert config.shaping_gamma == pytest.approx(0.99)
     assert config.shaping_scale == pytest.approx(5.0)
+    assert config.progress_scale == pytest.approx(1.0)
+    assert config.progress_gamma == pytest.approx(0.99)
 
 
 def test_receiver_drive_reward_adds_the_bonus_only_when_targeted_open() -> None:
@@ -50,7 +53,7 @@ def test_receiver_drive_reward_keeps_terminal_penalties_and_pays_the_open_bonus(
 
     reward = receiver_drive_reward(PlayOutcome.INTERCEPTION, 0.0, False, True, config)
 
-    assert reward == pytest.approx(-1.0 + 0.3)
+    assert reward == pytest.approx(-2.0 + 0.3)
 
 
 def test_receiver_separation_potential_is_bounded_and_monotone() -> None:
@@ -217,3 +220,39 @@ def test_build_env_returns_the_receiver_drive_env() -> None:
     assert env.observation_space.shape == (RECEIVER_DRIVE_OBSERVATION_SIZE,)
 
     env.close()
+
+
+def _run_receiver_drive(
+    reward_config: ReceiverDriveRewardConfig,
+) -> tuple[float, dict]:
+    env = ReceiverDriveEnv(
+        reward_config=reward_config,
+        drive_config=DriveConfig(los_range=(25.0, 25.0)),
+    )
+    env.reset(seed=3)
+    total = 0.0
+    terminated = truncated = False
+    info: dict = {}
+    while not (terminated or truncated):
+        _, reward, terminated, truncated, info = env.step(
+            np.array([1.0, 0.0], dtype=np.float32)
+        )
+        total += reward
+    return total, info
+
+
+def test_receiver_drive_applies_progress_shaping_on_play_end() -> None:
+    shaped_total, info = _run_receiver_drive(ReceiverDriveRewardConfig())
+    plain_total, _ = _run_receiver_drive(
+        ReceiverDriveRewardConfig(progress_scale=0.0)
+    )
+
+    expected = sum(
+        progress_shaping(
+            play["spot"] - play["yards"], play["spot"], 100.0, 1.0, 0.99
+        )
+        for play in info["plays"]
+    )
+
+    assert expected != pytest.approx(0.0)
+    assert shaped_total - plain_total == pytest.approx(expected)

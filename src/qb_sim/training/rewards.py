@@ -11,12 +11,13 @@ class RewardConfig:
     """Coefficients for terminal outcomes, yardage, and time shaping."""
 
     completion: float = 1.0
-    interception: float = -1.0
+    interception: float = -2.0
     incompletion: float = -0.2
     out_of_bounds: float = -0.2
     time_limit: float = -0.5
     sack: float = -1.0
     yard: float = 0.02
+    rush_yard: float = 0.05
     time_penalty: float = -0.002
     attempt: float = 0.1
     attempt_min_seconds: float = 0.5
@@ -36,6 +37,8 @@ def terminal_reward(outcome: PlayOutcome, yards: float, config: RewardConfig) ->
         return config.time_limit
     if outcome is PlayOutcome.SACK:
         return config.sack
+    if outcome is PlayOutcome.RUSH:
+        return yards * config.rush_yard
     return 0.0
 
 
@@ -46,9 +49,34 @@ class DriveRewardConfig:
     play: RewardConfig = field(default_factory=RewardConfig)
     first_down: float = 0.3
     turnover_on_downs: float = -0.5
+    progress_scale: float = 1.0
+    progress_gamma: float = 0.99
 
 
-def drive_result_reward(result: PlayResult, config: DriveRewardConfig) -> float:
+def progress_potential(x: float, goal_line: float, scale: float) -> float:
+    """Potential: field progress squared, steeper near the goal (``[0, scale]``)."""
+    clipped = min(max(float(x), 0.0), goal_line)
+    return scale * (clipped / goal_line) ** 2
+
+
+def progress_shaping(
+    los_before: float,
+    spot: float,
+    goal_line: float,
+    scale: float,
+    gamma: float,
+) -> float:
+    """Potential-based field-progress shaping; zero when disabled."""
+    if scale <= 0.0:
+        return 0.0
+    return gamma * progress_potential(
+        spot, goal_line, scale
+    ) - progress_potential(los_before, goal_line, scale)
+
+
+def drive_result_reward(
+    result: PlayResult, config: DriveRewardConfig, goal_line: float = 100.0
+) -> float:
     """Return the reward for one finished drive play."""
     reward = terminal_reward(result.outcome, result.yards, config.play)
     if result.first_down:
@@ -57,6 +85,13 @@ def drive_result_reward(result: PlayResult, config: DriveRewardConfig) -> float:
         reward += result.points
     if result.end_reason == "turnover_on_downs":
         reward += config.turnover_on_downs
+    reward += progress_shaping(
+        result.spot - result.yards,
+        result.spot,
+        goal_line,
+        config.progress_scale,
+        config.progress_gamma,
+    )
     return float(reward)
 
 
@@ -95,6 +130,8 @@ class ReceiverDriveRewardConfig:
     separation_shaping: bool = True
     shaping_gamma: float = 0.99
     shaping_scale: float = 5.0
+    progress_scale: float = 1.0
+    progress_gamma: float = 0.99
 
 
 def receiver_drive_reward(
@@ -123,9 +160,11 @@ def receiver_separation_potential(separation: float, scale: float = 5.0) -> floa
     return min(max(float(separation), 0.0), scale) / scale
 
 
-def defender_drive_reward(result: PlayResult, config: DriveRewardConfig) -> float:
+def defender_drive_reward(
+    result: PlayResult, config: DriveRewardConfig, goal_line: float = 100.0
+) -> float:
     """Zero-sum defender reward for one finished drive play."""
-    return -drive_result_reward(result, config)
+    return -drive_result_reward(result, config, goal_line=goal_line)
 
 
 @dataclass(frozen=True, slots=True)

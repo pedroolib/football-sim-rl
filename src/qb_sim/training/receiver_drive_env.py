@@ -25,6 +25,7 @@ from qb_sim.rules.scenarios import STAGE_B_SCENARIO, Scenario
 from qb_sim.training.randomization import AdaptationRanges, sample_adaptation_config
 from qb_sim.training.rewards import (
     ReceiverDriveRewardConfig,
+    progress_shaping,
     receiver_drive_reward,
     receiver_separation_potential,
 )
@@ -226,6 +227,13 @@ class ReceiverDriveEnv(gym.Env[np.ndarray, np.ndarray]):
                 caught,
                 self._targeted_open(),
                 self.reward_config,
+            )
+            reward += progress_shaping(
+                result.spot - result.yards,
+                result.spot,
+                self.goal_line,
+                self.reward_config.progress_scale,
+                self.reward_config.progress_gamma,
             )
             self.play_history.append(
                 {

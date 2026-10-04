@@ -498,7 +498,9 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             distance_before = self.drive.state.distance
             los_before = self.drive.state.los
             result = self.drive.advance(self.play)
-            reward = defender_drive_reward(result, self.reward_config.terminal)
+            reward = defender_drive_reward(
+                result, self.reward_config.terminal, goal_line=self.goal_line
+            )
             self.play_history.append(
                 {
                     "down": down_before,

@@ -9,7 +9,7 @@ from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.routes import RouteName
 from qb_sim.training.randomization import AdaptationRanges
-from qb_sim.training.rewards import DefenderRewardConfig, defender_potential
+from qb_sim.training.rewards import DefenderRewardConfig, DriveRewardConfig, defender_potential
 from qb_sim.training.role_context_observations import (
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
@@ -373,7 +373,9 @@ def test_role_drive_defender_reward_is_zero_sum() -> None:
     env = RoleDriveEnv(
         _sack_scenario(),
         learner_id="cb1",
-        reward_config=DefenderRewardConfig(shaping=False),
+        reward_config=DefenderRewardConfig(
+            terminal=DriveRewardConfig(progress_scale=0.0), shaping=False
+        ),
         drive_config=DriveConfig(los_range=(20.0, 20.0)),
     )
     env.reset(seed=0)
