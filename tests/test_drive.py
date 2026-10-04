@@ -304,7 +304,10 @@ def test_start_play_samples_only_third_and_short_routes() -> None:
     observed = _sample_routes_in_situation(3, 2.0, (40.0, 40.0), range(20))
 
     assert set(observed) <= set(expected)
-    assert not (set(observed) & {RouteName.GO, RouteName.POST, RouteName.WHEEL, RouteName.CORNER})
+    assert not (
+        set(observed)
+        & {RouteName.GO, RouteName.POST, RouteName.WHEEL, RouteName.FLAT, RouteName.CURL}
+    )
 
 
 def test_start_play_samples_only_red_zone_routes_near_the_goal() -> None:
@@ -313,7 +316,10 @@ def test_start_play_samples_only_red_zone_routes_near_the_goal() -> None:
     observed = _sample_routes_in_situation(1, 10.0, (86.0, 86.0), range(20))
 
     assert set(observed) <= set(expected)
-    assert not (set(observed) & {RouteName.GO, RouteName.POST, RouteName.WHEEL})
+    assert not (
+        set(observed)
+        & {RouteName.GO, RouteName.WHEEL, RouteName.FLAT, RouteName.CURL}
+    )
 
 
 def test_start_play_situational_routes_are_deterministic() -> None:

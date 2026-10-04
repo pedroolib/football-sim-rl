@@ -36,16 +36,26 @@ ROUTE_OBSERVATION_ORDER: tuple[RouteName, ...] = (
 DEFAULT_ROUTE_POOL = ROUTE_OBSERVATION_ORDER
 
 RED_ZONE_YARDS = 20.0
-THIRD_AND_LONG_POOL = (RouteName.GO, RouteName.POST, RouteName.CORNER, RouteName.WHEEL)
-THIRD_AND_SHORT_POOL = (RouteName.SLANT, RouteName.FLAT, RouteName.OUT, RouteName.CURL)
+# Audit (runs/reports/route_audit_*.json, 100 drives) pruned the unproductive
+# routes: CURL (0.0 yd/play), FLAT (1.6-2.0 yd/play, 16-24% INT) and WHEEL
+# (25% INT, rarely targeted). POST, GO, CORNER, OUT, and SLANT stay.
+PRODUCTIVE_POOL = (
+    RouteName.GO,
+    RouteName.POST,
+    RouteName.CORNER,
+    RouteName.OUT,
+    RouteName.SLANT,
+)
+THIRD_AND_LONG_POOL = (RouteName.GO, RouteName.POST, RouteName.CORNER, RouteName.OUT)
+THIRD_AND_SHORT_POOL = (RouteName.SLANT, RouteName.OUT, RouteName.CORNER)
 LONG_DISTANCE_POOL = (
     RouteName.GO,
     RouteName.POST,
     RouteName.CORNER,
-    RouteName.WHEEL,
     RouteName.OUT,
+    RouteName.SLANT,
 )
-RED_ZONE_POOL = (RouteName.SLANT, RouteName.OUT, RouteName.CORNER, RouteName.FLAT, RouteName.CURL)
+RED_ZONE_POOL = (RouteName.SLANT, RouteName.OUT, RouteName.CORNER, RouteName.POST)
 
 
 def route_pool_for(
@@ -63,7 +73,7 @@ def route_pool_for(
         return THIRD_AND_SHORT_POOL
     if distance >= 8.0:
         return LONG_DISTANCE_POOL
-    return DEFAULT_ROUTE_POOL
+    return PRODUCTIVE_POOL
 
 
 def sample_routes(
