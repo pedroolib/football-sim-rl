@@ -371,23 +371,24 @@ def test_randomized_env_applies_sampled_speeds() -> None:
 
 ```bash
 python -m qb_sim.training.train --env role_play --scenario stage_b --learner wr1 \
-  --opponent qb=runs/ppo_drive_qb_v11/final_model.zip \
   --timesteps 50000 --seed 0 --run-name ppo_wr_g1_pilot --n-envs 8 --randomize-config \
   --imitation-episodes 300 --imitation-epochs 800 --imitation-learning-rate 1e-4
 ```
 
 - [ ] **Step 2: Evaluate on the matrix** (Task 10 script lands later; for the pilot use the
-  existing `evaluate_stage_b.py wr` on `stage_b` plus two extra scenarios if available).
-  Gate: at the Stage B config, catch within 5 points of `ppo_wr_v1` (28%) and monotone
-  catch/TD with the speed gap in a 3-cell sanity sweep.
+  existing `evaluate_stage_b.py wr` on `stage_b` without `--opponent`, since the rule QB is
+  the teammate). Gate: at the Stage B config, catch within 5 points of the recorded Stage B
+  specialist (`ppo_wr_v1` = 28%) and monotone catch/TD with the speed gap in a 3-cell sanity
+  sweep (Task 10).
 - [ ] **Step 3: Long run (250k) -> `runs/ppo_wr_g1`** and final evaluation.
 
 ---
 
 ### Task 8: Generalized CB (`ppo_cb_g1`)
 
-- [ ] **Step 1: Pilot (50k)** with `--env role_drive --learner cb1 --n-envs 8 --randomize-config`,
-  opponents: generalized WR (if present, else `ppo_wr_v1`) + QB v11.
+- [ ] **Step 1: Pilot (50k)** with `--env role_drive --learner cb1 --n-envs 8 --randomize-config`.
+  Opponents: rule QB (no `--opponent qb`) plus generalized WR when available (layout-compatible;
+  the 31-obs `ppo_wr_v1` cannot run against the 35-obs builder).
 - [ ] **Step 2: Gate**: at `stage_b`, INT forced not lower and separation/completion within
   5 points of `ppo_cb_v1`/rules; monotone coverage vs gap sanity.
 - [ ] **Step 3: Long run (250k) -> `runs/ppo_cb_g1`.**
@@ -396,8 +397,8 @@ python -m qb_sim.training.train --env role_play --scenario stage_b --learner wr1
 
 ### Task 9: Generalized rusher (`ppo_ru_g1`)
 
-- [ ] **Step 1: Pilot (50k)** with `--env role_drive --learner ru1 --n-envs 8 --randomize-config`,
-  opponents: generalized WR/CB + QB v11.
+- [ ] **Step 1: Pilot (50k)** with `--env role_drive --learner ru1 --n-envs 8 --randomize-config`.
+  Opponents: rule QB plus generalized WR/CB when available.
 - [ ] **Step 2: Gate**: pressure/arrival within 5% of `ppo_ru_v1`/rules at `stage_b`.
 - [ ] **Step 3: Long run (250k) -> `runs/ppo_ru_g1`.**
 

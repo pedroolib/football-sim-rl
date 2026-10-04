@@ -26,7 +26,9 @@ validation matrix. MARL/coordination comes afterwards on top of these policies.
 ## 2. Approved decisions
 
 1. New generalized models trained from scratch; the Stage B specialists stay as
-   references for per-config regression.
+   **recorded reference numbers** for per-config regression (their 57/31/24-float
+   layouts are incompatible with the new 61/35/27 builders, so they cannot be run
+   live in B2 environments).
 2. Asymmetric information: the offense knows team capabilities (QB and WR train
    together); defenders see only in-game kinematics plus the last observed
    throw distance of the drive. Defenders never observe the QB's range or
