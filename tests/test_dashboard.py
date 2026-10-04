@@ -358,3 +358,10 @@ def test_dashboard_role_drive_mode_runs_drives(dummy_video, tmp_path) -> None:
         assert panel.down_label.startswith(("1st", "2nd", "3rd"))
     finally:
         dashboard.close()
+
+
+def test_scroll_start_keeps_the_current_line_visible() -> None:
+    assert TrainingDashboard._scroll_start(15, 0, 9) == 0
+    assert TrainingDashboard._scroll_start(15, 14, 9) == 6
+    assert TrainingDashboard._scroll_start(15, 7, 9) == 3
+    assert TrainingDashboard._scroll_start(5, 4, 9) == 0

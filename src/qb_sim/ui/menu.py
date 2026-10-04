@@ -254,7 +254,7 @@ class ModelMenu:
             group = "runs" if relative == Path(".") else relative.as_posix()
             if kind == "drive" and learner == "qb":
                 options["qb"].append(ModelOption(run.name, model_path, size, group))
-            elif kind == "role_play" and learner in ("wr1", "wr2"):
+            elif kind in ("role_play", "receiver_drive") and learner in ("wr1", "wr2"):
                 options["wr1"].append(ModelOption(run.name, model_path, size, group))
                 options["wr2"].append(ModelOption(run.name, model_path, size, group))
             elif kind == "role_drive" and learner in ("cb1", "cb2"):
@@ -301,17 +301,17 @@ class ModelMenu:
     ) -> bool:
         """Select a model whose saved observation matches a supported size.
 
-        Sizes are tried in order (current layout first), preferring hinted
-        labels within each size; this keeps current models ahead of legacy
-        ones while still falling back to legacy when needed. Returns whether
-        a model was selected.
+        Hinted labels win when compatible (they are curated production names);
+        otherwise the first option matching the first supported size is used,
+        falling back to legacy sizes in order. Returns whether a model was
+        selected.
         """
+        for label in hints:
+            for index, option in enumerate(self.options[role]):
+                if option.label == label and option.observation_size in expected_sizes:
+                    self.selection[role] = index
+                    return True
         for size in expected_sizes:
-            for label in hints:
-                for index, option in enumerate(self.options[role]):
-                    if option.label == label and option.observation_size == size:
-                        self.selection[role] = index
-                        return True
             for index, option in enumerate(self.options[role]):
                 if option.observation_size == size:
                     self.selection[role] = index

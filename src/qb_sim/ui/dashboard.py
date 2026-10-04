@@ -34,7 +34,7 @@ from qb_sim.training.policy import (
     SUPPORTED_RECEIVER_SIZES,
 )
 from qb_sim.ui import theme
-from qb_sim.ui.menu import ModelMenu, ParameterMenu
+from qb_sim.ui.menu import ModelMenu, ModelOption, ParameterMenu
 from qb_sim.ui.rendering import (
     draw_ball,
     draw_field,
@@ -657,39 +657,78 @@ class TrainingDashboard:
                 border_radius=2,
             )
 
+    @staticmethod
+    def _scroll_start(total: int, current: int, capacity: int) -> int:
+        """First visible line so that ``current`` stays inside the window."""
+        if total <= capacity:
+            return 0
+        start = current - capacity // 2
+        return max(0, min(start, total - capacity))
+
     def _draw_model_folders(self, card: pygame.Rect) -> None:
-        """Folder-grouped list of the focused role's models, with observation sizes."""
+        """Folder-grouped list of the focused role's models, with observation sizes.
+
+        The list scrolls to keep the selected model visible, so every
+        discovered model can be reached with the arrow keys.
+        """
         if self._model_menu is None:
             return
         role = self._model_menu.role()
         current = self._model_menu.current(role)
-        panel = pygame.Rect(card.x + 360, card.y + 52, card.width - 384, 6 * 30 + 8)
+        panel = pygame.Rect(card.x + 360, card.y + 52, card.width - 384, card.height - 64)
         pygame.draw.rect(self.screen, MENU_ROW, panel, border_radius=10)
         pygame.draw.rect(self.screen, (40, 52, 68), panel, 1, border_radius=10)
-        y = panel.y + 8
+        lines: list[tuple[str, str, ModelOption | None]] = []
         for group, options in self._model_menu.folders(role):
-            header = self.font_small.render(f"{group}/", True, MENU_MUTED)
-            self.screen.blit(header, (panel.x + 12, y))
-            y += 18
+            lines.append(("header", group, None))
             for option in options:
-                if y > panel.bottom - 16:
-                    more = self.font_small.render("…", True, MENU_MUTED)
-                    self.screen.blit(more, (panel.x + 24, y))
-                    return
-                is_current = option == current
-                label_image = self.font_mono.render(
-                    option.label,
-                    True,
-                    MENU_ACCENT if is_current else MENU_TEXT,
-                )
-                size_text = str(option.observation_size) if option.observation_size else "—"
-                size_image = self.font_small.render(size_text, True, MENU_MUTED)
-                self.screen.blit(label_image, (panel.x + 24, y))
-                self.screen.blit(
-                    size_image,
-                    (panel.right - 16 - size_image.get_width(), y + 2),
-                )
-                y += 21
+                lines.append(("option", group, option))
+        line_height = 21
+        strip = 22
+        capacity = max(1, (panel.height - strip - 8) // line_height)
+        current_line = next(
+            (
+                index
+                for index, (kind, _, option) in enumerate(lines)
+                if kind == "option" and option == current
+            ),
+            0,
+        )
+        start = self._scroll_start(len(lines), current_line, capacity)
+        window = lines[start : start + capacity]
+        y = panel.y + strip
+        for kind, group, option in window:
+            if kind == "header":
+                header = self.font_small.render(f"{group}/", True, MENU_MUTED)
+                self.screen.blit(header, (panel.x + 12, y + 2))
+                y += line_height
+                continue
+            is_current = option == current
+            label_image = self.font_mono.render(
+                option.label,
+                True,
+                MENU_ACCENT if is_current else MENU_TEXT,
+            )
+            size_text = str(option.observation_size) if option.observation_size else "—"
+            size_image = self.font_small.render(size_text, True, MENU_MUTED)
+            self.screen.blit(label_image, (panel.x + 24, y))
+            self.screen.blit(
+                size_image,
+                (panel.right - 16 - size_image.get_width(), y + 2),
+            )
+            y += line_height
+        if len(lines) > capacity:
+            marks = []
+            if start > 0:
+                marks.append("▲")
+            marks.append(f"{current_line + 1}/{len(lines)}")
+            if start + capacity < len(lines):
+                marks.append("▼")
+            status = self.font_small.render(" ".join(marks), True, MENU_MUTED)
+            self.screen.blit(
+                status,
+                (panel.right - 12 - status.get_width(), panel.y + 4),
+            )
 
     def run(self) -> None:
         """Run the dashboard until the window closes."""

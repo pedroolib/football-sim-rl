@@ -221,7 +221,7 @@ def test_discover_annotates_the_run_folder(tmp_path) -> None:
     assert ModelMenu.display(menu.current("wr1")) == "runs/ppo_wr_g1"
 
 
-def test_choose_compatible_skips_models_with_the_wrong_size() -> None:
+def test_choose_compatible_prefers_a_compatible_hint() -> None:
     menu = ModelMenu(
         {
             role: [
@@ -233,9 +233,38 @@ def test_choose_compatible_skips_models_with_the_wrong_size() -> None:
         }
     )
     assert menu.choose_compatible("wr1", (35, 31), hints=("old",))
-    assert menu.current("wr1").label == "new"
+    assert menu.current("wr1").label == "old"
     assert not menu.choose_compatible("qb", (61,))
     assert menu.current("qb").label == "reglas"
+
+
+def test_choose_compatible_prefers_the_current_size_without_hints() -> None:
+    menu = ModelMenu(
+        {
+            role: [
+                ModelOption("reglas", None),
+                ModelOption("old", None, observation_size=31),
+                ModelOption("new", None, observation_size=35),
+            ]
+            for role in ModelMenu.ROLES
+        }
+    )
+    assert menu.choose_compatible("wr1", (35, 31))
+    assert menu.current("wr1").label == "new"
+
+
+def test_discover_includes_receiver_drive_runs(tmp_path) -> None:
+    run = tmp_path / "wr" / "drive_v1"
+    _fake_model(run / "final_model.zip", 40)
+    (run / "config.json").write_text(
+        json.dumps({"env_kind": "receiver_drive", "learner": "wr1"}),
+        encoding="utf-8",
+    )
+    menu = ModelMenu.discover(tmp_path)
+
+    assert menu.labels("wr1") == ["reglas", "drive_v1"]
+    assert menu.labels("wr2") == ["reglas", "drive_v1"]
+    assert menu.options["wr1"][1].observation_size == 40
 
 
 def test_choose_compatible_falls_back_to_a_legacy_size() -> None:
