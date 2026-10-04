@@ -107,6 +107,35 @@ def test_summarize_role_play_reports_none_for_missing_samples() -> None:
     assert summary["mean_separation_at_catch"] is None
 
 
+def test_summarize_role_play_reports_team_completion_metrics() -> None:
+    results = [
+        {
+            "outcome": "completed",
+            "caught": True,
+            "yards": 8.0,
+            "yards_after_catch": 0.0,
+            "separation_at_throw": 1.0,
+            "separation_at_catch": None,
+        },
+        {
+            "outcome": "interception",
+            "caught": False,
+            "yards": 0.0,
+            "yards_after_catch": 0.0,
+            "separation_at_throw": None,
+            "separation_at_catch": None,
+        },
+    ]
+
+    summary = summarize_role_play(results)
+
+    assert summary["team_completion_pct"] == pytest.approx(50.0)
+    assert summary["team_completion_ci"][0] <= 50.0 <= summary["team_completion_ci"][1]
+    assert summary["team_touchdown_pct"] == pytest.approx(0.0)
+    assert len(summary["team_touchdown_ci"]) == 2
+    assert summary["team_touchdown_ci"][0] == 0.0
+
+
 def test_summarize_role_drive_reports_touchdown_interval() -> None:
     plays = [
         {

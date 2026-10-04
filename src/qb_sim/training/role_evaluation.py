@@ -48,6 +48,7 @@ def summarize_role_play(results: list[dict[str, Any]]) -> dict:
     if total == 0:
         raise ValueError("at least one play is required")
     catches = sum(bool(result["caught"]) for result in results)
+    completions = sum(result["outcome"] == "completed" for result in results)
     touchdowns = sum(result["outcome"] == "touchdown" for result in results)
     separations = [
         float(result["separation_at_throw"])
@@ -68,6 +69,10 @@ def summarize_role_play(results: list[dict[str, Any]]) -> dict:
         "catch_ci": _ci(catches, total),
         "touchdown_pct": _pct(touchdowns, total),
         "touchdown_ci": _ci(touchdowns, total),
+        "team_completion_pct": _pct(completions, total),
+        "team_completion_ci": _ci(completions, total),
+        "team_touchdown_pct": _pct(touchdowns, total),
+        "team_touchdown_ci": _ci(touchdowns, total),
         "touchdown_per_catch_pct": _pct(touchdowns, catches),
         "yards_per_play": _mean([float(result["yards"]) for result in results]),
         "mean_yards_after_catch": _mean(yards_after_catch),
