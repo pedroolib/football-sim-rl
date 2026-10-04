@@ -26,6 +26,8 @@ def test_summarize_composition_computes_team_metrics() -> None:
             "separation_at_catch": 1.0,
             "pressure_at_throw": 0.4,
             "arrival_time": 1.6,
+            "scramble_pct": 20.0,
+            "time_to_throw": 1.2,
         },
         {
             "outcome": "turnover_on_downs",
@@ -39,6 +41,8 @@ def test_summarize_composition_computes_team_metrics() -> None:
             "separation_at_catch": None,
             "pressure_at_throw": None,
             "arrival_time": None,
+            "scramble_pct": 0.0,
+            "time_to_throw": None,
         },
     ]
 
@@ -51,6 +55,12 @@ def test_summarize_composition_computes_team_metrics() -> None:
     assert summary["mean_separation_at_throw"] == pytest.approx(2.5)
     assert summary["mean_pressure_at_throw"] == pytest.approx(0.4)
     assert summary["mean_arrival_time"] == pytest.approx(1.6)
+    assert summary["completion_pct"] == pytest.approx(50.0)
+    assert len(summary["completion_ci"]) == 2
+    assert summary["completion_ci"][0] <= 50.0 <= summary["completion_ci"][1]
+    assert summary["mean_throw_distance"] == pytest.approx(13.5)
+    assert summary["mean_scramble_pct"] == pytest.approx(10.0)
+    assert summary["mean_time_to_throw"] == pytest.approx(1.2)
     assert len(summary["turnover_on_downs_ci"]) == 2
     assert summary["turnover_on_downs_ci"][0] <= 50.0 <= summary["turnover_on_downs_ci"][1]
     assert len(summary["sack_ci"]) == 2
@@ -214,6 +224,18 @@ def test_run_composition_episode_records_pre_step_pressure_at_throw() -> None:
 
     assert observed["pressure"] is not None
     assert result["pressure_at_throw"] == pytest.approx(observed["pressure"])
+
+
+def test_run_composition_episode_reports_scramble_and_throw_time() -> None:
+    from qb_sim.training.drive_env import QBDriveEnv
+
+    scenario = get_scenario("stage_b")
+    env = QBDriveEnv(scenario)
+    result = run_composition_episode(env, RuleQuarterbackPolicy(scenario.config), 0)
+    env.close()
+
+    assert 0.0 <= result["scramble_pct"] <= 100.0
+    assert result["time_to_throw"] is None or result["time_to_throw"] >= 0.0
 
 
 def test_evaluate_composition_with_the_rule_quarterback_is_reproducible() -> None:

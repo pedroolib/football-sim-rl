@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 
+from qb_sim.engine.entities import BallStatus
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.drive_evaluation import wilson_interval
@@ -155,11 +156,21 @@ def run_composition_episode(env: QBDriveEnv, qb_policy: QBPolicy, seed: int) -> 
     separation_catch: float | None = None
     pressure_throw: float | None = None
     arrival: float | None = None
+    time_to_throw: float | None = None
+    scramble_ticks = 0
+    held_ticks = 0
     while not (terminated or truncated):
-        pre_pressure = float(env.play.state.pressure)
+        pre_state = env.play.state
+        pre_pressure = float(pre_state.pressure)
         action = np.asarray(qb_policy(env, observation), dtype=np.float32)
+        if pre_state.ball.status is BallStatus.HELD:
+            held_ticks += 1
+            if float(np.linalg.norm(action[:2])) > 0.1:
+                scramble_ticks += 1
         observation, _, terminated, truncated, _ = env.step(action)
         current = env.play.state
+        if time_to_throw is None and current.throw_time is not None:
+            time_to_throw = float(current.throw_time)
         if separation_throw is None and current.throw_time is not None:
             separation_throw = _target_separation(env)
             pressure_throw = pre_pressure
@@ -183,6 +194,8 @@ def run_composition_episode(env: QBDriveEnv, qb_policy: QBPolicy, seed: int) -> 
         "separation_at_catch": separation_catch,
         "pressure_at_throw": pressure_throw,
         "arrival_time": arrival,
+        "scramble_pct": _pct(scramble_ticks, held_ticks),
+        "time_to_throw": time_to_throw,
     }
 
 
@@ -228,6 +241,12 @@ def summarize_composition(results: list[dict[str, Any]]) -> dict:
     third_downs = [play for play in plays if play["down"] == 3]
     conversions = sum(bool(play["first_down"] or play["touchdown"]) for play in third_downs)
     sacks = sum(play["outcome"] == "sack" for play in plays)
+    completions = sum(play["outcome"] == "completed" for play in plays)
+    throw_distances = [
+        float(play["throw_distance"])
+        for play in plays
+        if play["throw_distance"] is not None
+    ]
     separations = [
         float(result["separation_at_throw"])
         for result in results
@@ -258,6 +277,19 @@ def summarize_composition(results: list[dict[str, Any]]) -> dict:
         "turnover_on_downs_ci": _ci(turnovers, total),
         "sack_pct": _pct(sacks, len(plays)),
         "sack_ci": _ci(sacks, len(plays)),
+        "completion_pct": _pct(completions, len(plays)),
+        "completion_ci": _ci(completions, len(plays)),
+        "mean_throw_distance": _mean(throw_distances),
+        "mean_scramble_pct": _mean(
+            [float(result["scramble_pct"]) for result in results]
+        ),
+        "mean_time_to_throw": _mean(
+            [
+                float(result["time_to_throw"])
+                for result in results
+                if result["time_to_throw"] is not None
+            ]
+        ),
         "mean_separation_at_throw": _mean(separations),
         "mean_pressure_at_throw": _mean(pressures),
         "mean_arrival_time": _mean(arrivals),
