@@ -248,6 +248,7 @@ class ReceiverDriveEnv(gym.Env[np.ndarray, np.ndarray]):
                     "throw_distance": result.throw_distance,
                     "sack": result.outcome is PlayOutcome.SACK,
                     "coverage_sack": result.coverage_sack,
+                    "routes": [route.value for route in self.drive.routes],
                     "pressure_at_throw": self._pressure_at_throw,
                     "arrival_time": self._arrival_time,
                     "separation_allowed_throw": self._separation_at_throw,

@@ -5,7 +5,7 @@ import pytest
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.drive import Drive, DriveConfig
-from qb_sim.rules.routes import DEFAULT_ROUTE_POOL
+from qb_sim.rules.routes import DEFAULT_ROUTE_POOL, RouteName, route_pool_for
 from qb_sim.rules.scenarios import PRESSURED_SCENARIO
 
 ZERO_DEVIATION = replace(
@@ -275,3 +275,55 @@ def test_last_throw_distance_resets_with_the_drive() -> None:
     drive.reset(seed=7)
 
     assert drive.state.last_throw_distance is None
+
+
+def _sample_routes_in_situation(down: int, distance: float, los_range, seeds) -> list:
+    drive = _drive(los_range=los_range)
+    observed: list = []
+    for seed in seeds:
+        drive.reset(seed=seed)
+        drive.state.down = down
+        drive.state.distance = distance
+        drive.start_play()
+        observed.extend(drive.routes)
+    return observed
+
+
+def test_start_play_samples_only_third_and_long_routes() -> None:
+    expected = route_pool_for(3, 12.0, 40.0)
+
+    observed = _sample_routes_in_situation(3, 12.0, (40.0, 40.0), range(20))
+
+    assert set(observed) <= set(expected)
+    assert not (set(observed) & {RouteName.FLAT, RouteName.CURL})
+
+
+def test_start_play_samples_only_third_and_short_routes() -> None:
+    expected = route_pool_for(3, 2.0, 40.0)
+
+    observed = _sample_routes_in_situation(3, 2.0, (40.0, 40.0), range(20))
+
+    assert set(observed) <= set(expected)
+    assert not (set(observed) & {RouteName.GO, RouteName.POST, RouteName.WHEEL, RouteName.CORNER})
+
+
+def test_start_play_samples_only_red_zone_routes_near_the_goal() -> None:
+    expected = route_pool_for(1, 10.0, 86.0, 100.0)
+
+    observed = _sample_routes_in_situation(1, 10.0, (86.0, 86.0), range(20))
+
+    assert set(observed) <= set(expected)
+    assert not (set(observed) & {RouteName.GO, RouteName.POST, RouteName.WHEEL})
+
+
+def test_start_play_situational_routes_are_deterministic() -> None:
+    first = _drive(los_range=(40.0, 40.0))
+    second = _drive(los_range=(40.0, 40.0))
+    for drive in (first, second):
+        drive.state.down = 3
+        drive.state.distance = 12.0
+    first_play = first.start_play()
+    second_play = second.start_play()
+
+    assert first.routes == second.routes
+    assert first_play.seed == second_play.seed

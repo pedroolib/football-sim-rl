@@ -35,6 +35,36 @@ ROUTE_OBSERVATION_ORDER: tuple[RouteName, ...] = (
 )
 DEFAULT_ROUTE_POOL = ROUTE_OBSERVATION_ORDER
 
+RED_ZONE_YARDS = 20.0
+THIRD_AND_LONG_POOL = (RouteName.GO, RouteName.POST, RouteName.CORNER, RouteName.WHEEL)
+THIRD_AND_SHORT_POOL = (RouteName.SLANT, RouteName.FLAT, RouteName.OUT, RouteName.CURL)
+LONG_DISTANCE_POOL = (
+    RouteName.GO,
+    RouteName.POST,
+    RouteName.CORNER,
+    RouteName.WHEEL,
+    RouteName.OUT,
+)
+RED_ZONE_POOL = (RouteName.SLANT, RouteName.OUT, RouteName.CORNER, RouteName.FLAT, RouteName.CURL)
+
+
+def route_pool_for(
+    down: int,
+    distance: float,
+    los: float,
+    goal_line: float = 100.0,
+) -> tuple[RouteName, ...]:
+    """Situational route pool for a down, distance to the marker, and field position."""
+    if goal_line - los <= RED_ZONE_YARDS:
+        return RED_ZONE_POOL
+    if down == 3 and distance >= 8.0:
+        return THIRD_AND_LONG_POOL
+    if down == 3 and distance <= 3.0:
+        return THIRD_AND_SHORT_POOL
+    if distance >= 8.0:
+        return LONG_DISTANCE_POOL
+    return DEFAULT_ROUTE_POOL
+
 
 def sample_routes(
     rng: np.random.Generator,

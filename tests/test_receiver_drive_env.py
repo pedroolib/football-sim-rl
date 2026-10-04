@@ -257,3 +257,21 @@ def test_receiver_drive_applies_progress_shaping_on_play_end() -> None:
 
     assert expected != pytest.approx(0.0)
     assert shaped_total - plain_total == pytest.approx(expected)
+
+
+def test_receiver_drive_play_history_records_the_sampled_routes() -> None:
+    env = ReceiverDriveEnv(drive_config=DriveConfig(los_range=(25.0, 25.0)))
+    env.reset(seed=3)
+    expected: list[list[str]] = []
+    terminated = truncated = False
+    info: dict = {}
+    while not (terminated or truncated):
+        routes_before = [route.value for route in env.drive.routes]
+        plays_before = len(env.play_history)
+        _, _, terminated, truncated, info = env.step(
+            np.array([1.0, 0.0], dtype=np.float32)
+        )
+        if len(env.play_history) > plays_before:
+            expected.append(routes_before)
+
+    assert [play["routes"] for play in info["plays"]] == expected

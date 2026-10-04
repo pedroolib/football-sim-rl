@@ -2,6 +2,7 @@ from math import isfinite
 
 import pytest
 
+from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER
 from qb_sim.rules.scenarios import get_scenario
 from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.evaluation import RuleQuarterbackPolicy
@@ -71,6 +72,7 @@ def _record(
     target_id: str = "wr1",
     target_advantage: float = 0.0,
     best_advantage: float = 0.0,
+    routes: tuple[str, ...] = ("go", "slant"),
 ) -> ThrowRecord:
     return ThrowRecord(
         play_index=play_index,
@@ -82,6 +84,7 @@ def _record(
         target_id=target_id,
         target_advantage=target_advantage,
         best_advantage=best_advantage,
+        routes=routes,
     )
 
 
@@ -225,6 +228,7 @@ def test_run_instrumented_drive_with_rule_quarterback_records_throws() -> None:
     assert all(drive.plays for drive in drives)
     records = [record for drive in drives for record in drive.records]
     assert records
+    valid_routes = {route.value for route in ROUTE_OBSERVATION_ORDER}
     for record in records:
         assert record.target_id in ("wr1", "wr2")
         assert record.play_index >= 1
@@ -233,6 +237,8 @@ def test_run_instrumented_drive_with_rule_quarterback_records_throws() -> None:
         assert isfinite(record.throw_distance)
         assert isfinite(record.target_advantage)
         assert isfinite(record.best_advantage)
+        assert len(record.routes) == 2
+        assert set(record.routes) <= valid_routes
 
     summary = summarize_diagnostics(drives)
 

@@ -7,7 +7,7 @@ import numpy as np
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.play import Play
-from qb_sim.rules.routes import DEFAULT_ROUTE_POOL, RouteName, sample_routes
+from qb_sim.rules.routes import RouteName, route_pool_for, sample_routes
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,10 +113,16 @@ class Drive:
         if self.state.terminated:
             raise ValueError("the drive is already over")
         self.state.play_number += 1
+        pool = route_pool_for(
+            self.state.down,
+            self.state.distance,
+            self.state.los,
+            self.drive_config.goal_line,
+        )
         self._routes = sample_routes(
             self._rng,
             len(self.config.receiver_starts),
-            DEFAULT_ROUTE_POOL,
+            pool,
         )
         play_seed = int(self._rng.integers(0, 2**31 - 1))
         return Play(

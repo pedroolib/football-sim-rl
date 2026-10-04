@@ -452,6 +452,26 @@ def test_role_drive_step_after_termination_raises() -> None:
         env.step(np.zeros(2, dtype=np.float32))
 
 
+def test_role_drive_play_history_records_the_sampled_routes() -> None:
+    env = RoleDriveEnv(
+        _sack_scenario(),
+        learner_id="cb1",
+        drive_config=DriveConfig(los_range=(20.0, 20.0)),
+    )
+    env.reset(seed=0)
+    expected: list[list[str]] = []
+    terminated = truncated = False
+    info: dict = {}
+    while not (terminated or truncated):
+        routes_before = [route.value for route in env.drive.routes]
+        plays_before = len(env.play_history)
+        _, _, terminated, truncated, info = env.step(np.zeros(2, dtype=np.float32))
+        if len(env.play_history) > plays_before:
+            expected.append(routes_before)
+
+    assert [play["routes"] for play in info["plays"]] == expected
+
+
 def test_role_drive_records_separation_allowed_at_throw() -> None:
     def qb(state, routes, drive_state):
         if state.ball.status is not BallStatus.HELD or state.elapsed_seconds == 0.0:

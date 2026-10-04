@@ -10,7 +10,25 @@ from qb_sim.rules.routes import (
     ROUTE_OBSERVATION_ORDER,
     RouteName,
     build_route,
+    route_pool_for,
     sample_routes,
+)
+
+RED_ZONE_POOL = (
+    RouteName.SLANT,
+    RouteName.OUT,
+    RouteName.CORNER,
+    RouteName.FLAT,
+    RouteName.CURL,
+)
+THIRD_AND_LONG_POOL = (RouteName.GO, RouteName.POST, RouteName.CORNER, RouteName.WHEEL)
+THIRD_AND_SHORT_POOL = (RouteName.SLANT, RouteName.FLAT, RouteName.OUT, RouteName.CURL)
+LONG_DISTANCE_POOL = (
+    RouteName.GO,
+    RouteName.POST,
+    RouteName.CORNER,
+    RouteName.WHEEL,
+    RouteName.OUT,
 )
 
 
@@ -173,3 +191,66 @@ def test_go_route_is_capped_by_max_depth() -> None:
     route = build_route(RouteName.GO, vec2(20.0, 43.0), config.field, config, max_depth_yards=10.0)
 
     assert route.waypoints[0][0] == pytest.approx(30.0)
+
+
+def test_route_pool_for_uses_the_red_zone_pool_within_twenty_yards() -> None:
+    inside = route_pool_for(down=1, distance=10.0, los=81.0, goal_line=100.0)
+    boundary = route_pool_for(down=1, distance=10.0, los=80.0, goal_line=100.0)
+    outside = route_pool_for(down=1, distance=10.0, los=79.0, goal_line=100.0)
+
+    assert inside == RED_ZONE_POOL
+    assert boundary == RED_ZONE_POOL
+    assert outside == LONG_DISTANCE_POOL
+    assert RouteName.GO not in inside
+    assert RouteName.POST not in inside
+    assert RouteName.WHEEL not in inside
+
+
+def test_route_pool_for_prefers_the_red_zone_over_third_and_long() -> None:
+    pool = route_pool_for(down=3, distance=12.0, los=85.0, goal_line=100.0)
+
+    assert pool == RED_ZONE_POOL
+
+
+def test_route_pool_for_third_and_long_returns_only_deep_routes() -> None:
+    at_threshold = route_pool_for(down=3, distance=8.0, los=40.0)
+    deep = route_pool_for(down=3, distance=15.0, los=40.0)
+
+    assert at_threshold == THIRD_AND_LONG_POOL
+    assert deep == THIRD_AND_LONG_POOL
+    for route in (RouteName.FLAT, RouteName.CURL, RouteName.SLANT, RouteName.OUT):
+        assert route not in at_threshold
+
+
+def test_route_pool_for_third_and_short_returns_only_short_routes() -> None:
+    at_threshold = route_pool_for(down=3, distance=3.0, los=40.0)
+    short = route_pool_for(down=3, distance=1.5, los=40.0)
+
+    assert at_threshold == THIRD_AND_SHORT_POOL
+    assert short == THIRD_AND_SHORT_POOL
+    for route in (RouteName.GO, RouteName.POST, RouteName.WHEEL, RouteName.CORNER):
+        assert route not in at_threshold
+
+
+def test_route_pool_for_medium_third_down_falls_back_to_the_default_pool() -> None:
+    assert route_pool_for(down=3, distance=5.0, los=40.0) == DEFAULT_ROUTE_POOL
+
+
+def test_route_pool_for_long_distance_on_other_downs_keeps_an_outlet() -> None:
+    first_down = route_pool_for(down=1, distance=8.0, los=40.0)
+    second_down = route_pool_for(down=2, distance=20.0, los=40.0)
+
+    assert first_down == LONG_DISTANCE_POOL
+    assert second_down == LONG_DISTANCE_POOL
+    assert RouteName.OUT in first_down
+    assert RouteName.SLANT not in first_down
+    assert RouteName.FLAT not in first_down
+    assert RouteName.CURL not in first_down
+
+
+def test_route_pool_for_default_returns_all_eight_routes() -> None:
+    pool = route_pool_for(down=1, distance=5.0, los=40.0)
+
+    assert pool == DEFAULT_ROUTE_POOL
+    assert len(pool) == 8
+    assert set(pool) == set(ROUTE_OBSERVATION_ORDER)

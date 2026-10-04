@@ -33,6 +33,7 @@ class ThrowRecord:
     target_id: str
     target_advantage: float
     best_advantage: float
+    routes: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +112,7 @@ def _throw_record(
         target_id=target.player_id,
         target_advantage=float(advantages[target.player_id]),
         best_advantage=float(max(0.0, max(advantages.values()))),
+        routes=tuple(route.value for route in env.drive.routes),
     )
 
 

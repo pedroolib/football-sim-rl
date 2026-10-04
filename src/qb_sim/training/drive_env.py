@@ -169,6 +169,7 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
                     "throw_distance": result.throw_distance,
                     "sack": result.outcome is PlayOutcome.SACK,
                     "coverage_sack": result.coverage_sack,
+                    "routes": [route.value for route in self.drive.routes],
                 }
             )
             terminated = self.drive.state.terminated

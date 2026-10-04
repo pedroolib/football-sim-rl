@@ -241,3 +241,19 @@ def test_training_drive_env_does_not_import_pygame() -> None:
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
+
+
+def test_play_history_records_the_sampled_routes_per_play() -> None:
+    env = QBDriveEnv(_sack_scenario(), DriveConfig(los_range=(20.0, 20.0)))
+    env.reset(seed=0)
+    expected: list[list[str]] = []
+    terminated = truncated = False
+
+    while not (terminated or truncated):
+        routes_before = [route.value for route in env.drive.routes]
+        plays_before = len(env.play_history)
+        _, _, terminated, truncated, info = env.step(_noop())
+        if len(env.play_history) > plays_before:
+            expected.append(routes_before)
+
+    assert [play["routes"] for play in info["plays"]] == expected
