@@ -14,6 +14,7 @@ from gymnasium import spaces
 
 from qb_sim.agents.base import BaseAgent
 from qb_sim.agents.loop import build_rule_agents
+from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.rules.drive import Drive, DriveConfig
@@ -23,6 +24,7 @@ from qb_sim.training.drive_observations import (
     DRIVE_OBSERVATION_SIZE,
     drive_observation_from_state,
 )
+from qb_sim.training.randomization import AdaptationRanges, sample_adaptation_config
 from qb_sim.training.rewards import DriveRewardConfig, drive_result_reward
 from qb_sim.training.role_env import decide_player_action
 
@@ -39,9 +41,13 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         reward_config: DriveRewardConfig | None = None,
         max_episode_steps: int = 2400,
         opponents: Mapping[str, Any] | None = None,
+        randomization: AdaptationRanges | None = None,
     ) -> None:
         super().__init__()
         self.scenario = scenario if scenario is not None else RUSHED_SCENARIO
+        self.randomization = randomization
+        self._curriculum_progress = 0.0
+        self._active_config = self.scenario.config
         self.drive_config = drive_config if drive_config is not None else DriveConfig()
         self.reward_config = reward_config if reward_config is not None else DriveRewardConfig()
         self.max_episode_steps = int(max_episode_steps)
@@ -67,6 +73,25 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         """Scale the attempt shaping, used to anneal it during training."""
         self.attempt_scale = max(0.0, float(scale))
 
+    def set_curriculum_progress(self, progress: float) -> None:
+        """Set the [0, 1] curriculum phase used by the next episode sample."""
+        self._curriculum_progress = min(max(float(progress), 0.0), 1.0)
+
+    @property
+    def active_config(self) -> SimulationConfig:
+        """Configuration sampled for the current episode (base when disabled)."""
+        return self._active_config
+
+    def _sample_config(self) -> SimulationConfig:
+        if self.randomization is None:
+            return self.scenario.config
+        return sample_adaptation_config(
+            self.scenario.config,
+            np.random.default_rng(self._episode_seed),
+            self._curriculum_progress,
+            self.randomization,
+        )
+
     def reset(
         self,
         *,
@@ -79,7 +104,8 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             self._episode_seed = int(seed)
         else:
             self._episode_seed = int(self.np_random.integers(0, 2**31 - 1))
-        self.drive = Drive(self.scenario.config, self.drive_config, seed=self._episode_seed)
+        self._active_config = self._sample_config()
+        self.drive = Drive(self._active_config, self.drive_config, seed=self._episode_seed)
         self.play_history = []
         self._steps = 0
         self._drive_end_reason = None
@@ -161,7 +187,7 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         self._agents = build_rule_agents(
             self.play,
             self.drive.routes,
-            self.scenario.config,
+            self._active_config,
             include_quarterback=False,
         )
         self._agents.update(self.opponents)
@@ -171,7 +197,7 @@ class QBDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             state=self.play.state,
             routes=self.drive.routes,
             drive_state=self.drive.state,
-            config=self.scenario.config,
+            config=self._active_config,
             goal_line=self.drive_config.goal_line,
         )
 

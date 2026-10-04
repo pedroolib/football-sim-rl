@@ -14,6 +14,7 @@ from qb_sim.rules.scenarios import DEFAULT_SCENARIO, Scenario
 from qb_sim.training.actions import ACTION_SIZE
 from qb_sim.training.drive_env import QBDriveEnv
 from qb_sim.training.drive_observations import DRIVE_OBSERVATION_SIZE
+from qb_sim.training.randomization import AdaptationRanges
 
 ZERO_DEVIATION = replace(
     SimulationConfig(),
@@ -188,6 +189,27 @@ def test_attempt_scale_disables_the_attempt_shaping() -> None:
     _, reward, _, _, _ = env.step(_throw_at_receiver(env))
 
     assert reward == pytest.approx(-0.002)
+
+
+def test_randomized_drive_env_applies_sampled_config() -> None:
+    env = QBDriveEnv(randomization=AdaptationRanges())
+    env.reset(seed=5)
+
+    assert env.active_config == env.play.config
+    assert env.active_config.throw_max_range == pytest.approx(env.play.config.throw_max_range)
+    assert env.play.state.player("wr1").max_speed == pytest.approx(
+        env.active_config.receiver_speed
+    )
+
+
+def test_randomized_drive_env_is_deterministic_for_a_seed() -> None:
+    first = QBDriveEnv(randomization=AdaptationRanges())
+    second = QBDriveEnv(randomization=AdaptationRanges())
+    first_observation, _ = first.reset(seed=5)
+    second_observation, _ = second.reset(seed=5)
+
+    assert first.active_config == second.active_config
+    np.testing.assert_allclose(first_observation, second_observation)
 
 
 def test_training_drive_env_does_not_import_pygame() -> None:

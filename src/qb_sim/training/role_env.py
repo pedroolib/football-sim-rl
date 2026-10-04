@@ -10,6 +10,7 @@ from gymnasium import spaces
 from qb_sim.agents.base import BaseAgent
 from qb_sim.agents.loop import build_rule_agents
 from qb_sim.agents.rule_controllers import HeuristicQuarterback
+from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import PlayOutcome
 from qb_sim.engine.geometry import vec2
@@ -17,6 +18,7 @@ from qb_sim.rules.drive import Drive, DriveConfig, DriveState
 from qb_sim.rules.play import Play
 from qb_sim.rules.routes import sample_routes
 from qb_sim.rules.scenarios import STAGE_B_SCENARIO, Scenario
+from qb_sim.training.randomization import AdaptationRanges, sample_adaptation_config
 from qb_sim.training.rewards import (
     DefenderRewardConfig,
     ReceiverRewardConfig,
@@ -100,13 +102,18 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         goal_line: float = 100.0,
         max_steps: int = 240,
         los_range: tuple[float, float] = (25.0, 50.0),
+        randomization: AdaptationRanges | None = None,
     ) -> None:
         super().__init__()
         self.scenario = scenario if scenario is not None else STAGE_B_SCENARIO
         self.learner_id = learner_id
         self.opponents = dict(opponents or {})
-        if "qb" not in self.opponents:
+        self._default_qb = "qb" not in self.opponents
+        if self._default_qb:
             self.opponents["qb"] = HeuristicQuarterback("qb", self.scenario.config)
+        self.randomization = randomization
+        self._curriculum_progress = 0.0
+        self._active_config = self.scenario.config
         self.reward_config = reward_config if reward_config is not None else ReceiverRewardConfig()
         self.goal_line = float(goal_line)
         low, high = los_range
@@ -162,22 +169,45 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         self._setup_episode()
         return self.observation(), self._info()
 
+    def set_curriculum_progress(self, progress: float) -> None:
+        """Set the [0, 1] curriculum phase used by the next episode sample."""
+        self._curriculum_progress = min(max(float(progress), 0.0), 1.0)
+
+    @property
+    def active_config(self) -> SimulationConfig:
+        """Configuration sampled for the current episode (base when disabled)."""
+        return self._active_config
+
+    def _sample_config(self) -> SimulationConfig:
+        if self.randomization is None:
+            return self.scenario.config
+        return sample_adaptation_config(
+            self.scenario.config,
+            np.random.default_rng(self._episode_seed),
+            self._curriculum_progress,
+            self.randomization,
+        )
+
     def _setup_episode(self) -> None:
+        config = self._sample_config()
+        self._active_config = config
         rng = np.random.default_rng(self._episode_seed)
         low, high = self.los_range
         los = float(rng.uniform(low, high))
-        self.routes = sample_routes(rng, len(self.scenario.config.receiver_starts))
+        self.routes = sample_routes(rng, len(config.receiver_starts))
         self.play = Play(
-            self.scenario.config,
+            config,
             seed=self._episode_seed,
             line_of_scrimmage=los,
             goal_line=self.goal_line,
         )
         self._drive_context.los = los
+        if self._default_qb and self.randomization is not None:
+            self.opponents["qb"] = HeuristicQuarterback("qb", config)
         self._agents = build_rule_agents(
             self.play,
             self.routes,
-            self.scenario.config,
+            config,
             include_quarterback=False,
         )
         self._steps = 0
@@ -194,14 +224,14 @@ class RolePlayEnv(gym.Env[np.ndarray, np.ndarray]):
         index = self.play.receiver_ids.index(self.learner_id)
         shift = self.play.line_of_scrimmage - self.play.config.quarterback_start[0]
         start = vec2(
-            self.scenario.config.receiver_starts[index][0] + shift,
-            self.scenario.config.receiver_starts[index][1],
+            self.play.config.receiver_starts[index][0] + shift,
+            self.play.config.receiver_starts[index][1],
         )
         route = self.routes[index]
         return receiver_context_observation(
             self.play.state,
             self.learner_id,
-            self.scenario.config,
+            self.play.config,
             route,
             self.goal_line,
             start=start,
@@ -320,11 +350,15 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         drive_config: DriveConfig | None = None,
         goal_line: float = 100.0,
         max_steps: int = 2400,
+        randomization: AdaptationRanges | None = None,
     ) -> None:
         super().__init__()
         self.scenario = scenario if scenario is not None else STAGE_B_SCENARIO
         self.learner_id = learner_id
         self.opponents = dict(opponents or {})
+        self.randomization = randomization
+        self._curriculum_progress = 0.0
+        self._active_config = self.scenario.config
         self.reward_config = (
             reward_config if reward_config is not None else DefenderRewardConfig()
         )
@@ -350,11 +384,30 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         self._separation_allowed_catch: float | None = None
         self._build_agents()
 
+    def set_curriculum_progress(self, progress: float) -> None:
+        """Set the [0, 1] curriculum phase used by the next episode sample."""
+        self._curriculum_progress = min(max(float(progress), 0.0), 1.0)
+
+    @property
+    def active_config(self) -> SimulationConfig:
+        """Configuration sampled for the current episode (base when disabled)."""
+        return self._active_config
+
+    def _sample_config(self) -> SimulationConfig:
+        if self.randomization is None:
+            return self.scenario.config
+        return sample_adaptation_config(
+            self.scenario.config,
+            np.random.default_rng(self._episode_seed),
+            self._curriculum_progress,
+            self.randomization,
+        )
+
     def _build_agents(self) -> None:
         self._agents = build_rule_agents(
             self.play,
             self.drive.routes,
-            self.scenario.config,
+            self._active_config,
             include_quarterback=False,
         )
 
@@ -369,7 +422,8 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             self._episode_seed = int(seed)
         else:
             self._episode_seed = int(self.np_random.integers(0, 2**31 - 1))
-        self.drive = Drive(self.scenario.config, self.drive_config, seed=self._episode_seed)
+        self._active_config = self._sample_config()
+        self.drive = Drive(self._active_config, self.drive_config, seed=self._episode_seed)
         self.play_history = []
         self._steps = 0
         self._start_play()
@@ -391,7 +445,7 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             self.play.state,
             self.learner_id,
             defender_target(self.play, self.learner_id),
-            self.scenario.config,
+            self._active_config,
             self.drive.state,
             self.goal_line,
         )
@@ -484,7 +538,7 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
                 distance_to_quarterback = float(
                     np.linalg.norm(rusher.position - quarterback.position)
                 )
-                if distance_to_quarterback <= self.scenario.config.tackle_radius:
+                if distance_to_quarterback <= self._active_config.tackle_radius:
                     self._arrival_time = float(state.elapsed_seconds)
             return
         if self.learner_id not in self.play.defender_ids:

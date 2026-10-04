@@ -53,6 +53,107 @@ def sample_config(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class AdaptationRanges:
+    """Full capability ranges; the curriculum interpolates from a narrow phase."""
+
+    receiver_speed: tuple[float, float] = (6.0, 8.5)
+    defender_speed: tuple[float, float] = (5.5, 7.5)
+    quarterback_speed: tuple[float, float] = (5.0, 8.0)
+    rusher_speed: tuple[float, float] = (5.0, 8.0)
+    throw_max_range: tuple[float, float] = (30.0, 55.0)
+    throw_base_sigma_degrees: tuple[float, float] = (0.5, 4.0)
+
+
+_NARROW_SPEED_HALF_WIDTH = 0.5
+_NARROW_THROW_MAX_RANGE = (40.0, 50.0)
+_NARROW_THROW_SIGMA_DEGREES = (1.0, 2.0)
+
+
+def _narrow_speed_range(full: tuple[float, float]) -> tuple[float, float]:
+    center = (full[0] + full[1]) / 2.0
+    return (center - _NARROW_SPEED_HALF_WIDTH, center + _NARROW_SPEED_HALF_WIDTH)
+
+
+def _interpolated_range(
+    narrow: tuple[float, float],
+    full: tuple[float, float],
+    progress: float,
+) -> tuple[float, float]:
+    return (
+        narrow[0] + (full[0] - narrow[0]) * progress,
+        narrow[1] + (full[1] - narrow[1]) * progress,
+    )
+
+
+def sample_adaptation_config(
+    base: SimulationConfig,
+    rng: np.random.Generator,
+    progress: float,
+    ranges: AdaptationRanges | None = None,
+) -> SimulationConfig:
+    """Sample capability fields, widening from the narrow phase to full by progress.
+
+    Only speed, arm, and accuracy-sigma fields are replaced; the roster and
+    fatigue settings of ``base`` are preserved.
+    """
+    chosen = ranges if ranges is not None else AdaptationRanges()
+    phase = min(max(float(progress), 0.0), 1.0)
+    receiver_speed = float(
+        rng.uniform(
+            *_interpolated_range(
+                _narrow_speed_range(chosen.receiver_speed), chosen.receiver_speed, phase
+            )
+        )
+    )
+    defender_speed = float(
+        rng.uniform(
+            *_interpolated_range(
+                _narrow_speed_range(chosen.defender_speed), chosen.defender_speed, phase
+            )
+        )
+    )
+    quarterback_speed = float(
+        rng.uniform(
+            *_interpolated_range(
+                _narrow_speed_range(chosen.quarterback_speed),
+                chosen.quarterback_speed,
+                phase,
+            )
+        )
+    )
+    rusher_speed = float(
+        rng.uniform(
+            *_interpolated_range(
+                _narrow_speed_range(chosen.rusher_speed), chosen.rusher_speed, phase
+            )
+        )
+    )
+    throw_max_range = float(
+        rng.uniform(
+            *_interpolated_range(
+                _NARROW_THROW_MAX_RANGE, chosen.throw_max_range, phase
+            )
+        )
+    )
+    throw_base_sigma_degrees = float(
+        rng.uniform(
+            *_interpolated_range(
+                _NARROW_THROW_SIGMA_DEGREES, chosen.throw_base_sigma_degrees, phase
+            )
+        )
+    )
+    return replace(
+        base,
+        receiver_speed=receiver_speed,
+        defender_speed=defender_speed,
+        quarterback_speed=quarterback_speed,
+        rusher_speed=rusher_speed,
+        throw_max_range=throw_max_range,
+        throw_base_sigma_degrees=throw_base_sigma_degrees,
+    )
+
+
 class RandomizedEnv(gym.Env):
     """QBPassingEnv with fresh speed samples on every reset."""
 

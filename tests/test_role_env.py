@@ -7,6 +7,7 @@ from qb_sim.engine.entities import BallStatus
 from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.routes import RouteName
+from qb_sim.training.randomization import AdaptationRanges
 from qb_sim.training.rewards import DefenderRewardConfig, defender_potential
 from qb_sim.training.role_context_observations import (
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
@@ -57,6 +58,59 @@ def test_role_play_reset_samples_the_los_inside_the_range() -> None:
     assert 30.0 <= second <= 40.0
     assert first != second
     assert env.play.state.player("qb").position[0] == pytest.approx(second)
+
+
+def test_randomized_env_applies_sampled_speeds() -> None:
+    env = RolePlayEnv(randomization=AdaptationRanges())
+    env.reset(seed=5)
+
+    assert env.active_config.receiver_speed == pytest.approx(
+        env.play.config.receiver_speed
+    )
+    assert env.play.state.player("wr1").max_speed == pytest.approx(
+        env.active_config.receiver_speed
+    )
+
+
+def test_role_play_randomization_is_deterministic_for_a_seed() -> None:
+    first = RolePlayEnv(randomization=AdaptationRanges())
+    second = RolePlayEnv(randomization=AdaptationRanges())
+    first_observation, _ = first.reset(seed=5)
+    second_observation, _ = second.reset(seed=5)
+
+    assert first.active_config == second.active_config
+    np.testing.assert_allclose(first_observation, second_observation)
+
+
+def test_role_play_curriculum_progress_clamps_and_narrows() -> None:
+    env = RolePlayEnv(randomization=AdaptationRanges())
+
+    env.set_curriculum_progress(2.0)
+    env.reset(seed=0)
+    assert 6.0 <= env.active_config.receiver_speed <= 8.5
+
+    env.set_curriculum_progress(0.0)
+    env.reset(seed=0)
+    assert 6.75 <= env.active_config.receiver_speed <= 7.75
+
+
+def test_role_play_without_randomization_keeps_the_scenario_config() -> None:
+    env = RolePlayEnv()
+    env.reset(seed=0)
+
+    assert env.active_config is env.scenario.config
+    assert env.play.config is env.scenario.config
+
+
+def test_role_drive_randomization_applies_sampled_config() -> None:
+    env = RoleDriveEnv(randomization=AdaptationRanges())
+    env.reset(seed=5)
+
+    assert env.active_config == env.play.config
+    assert env.active_config.receiver_speed == pytest.approx(env.drive.config.receiver_speed)
+    assert env.play.state.player("wr1").max_speed == pytest.approx(
+        env.active_config.receiver_speed
+    )
 
 
 def test_role_play_rejects_an_los_range_below_the_formation_floor() -> None:
