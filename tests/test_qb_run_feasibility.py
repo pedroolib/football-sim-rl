@@ -26,6 +26,7 @@ def _run_only(depth: float) -> dict[str, float]:
         STAGE_B_CONFIG,
         qb_snap_depth_yards=depth,
         rusher_starts=RUSHER_STARTS,
+        qb_run_speed_factor=1.0,
     )
     scenario = Scenario(f"guard_depth_{depth:g}", config, (RouteName.POST, RouteName.SLANT))
     env = QBDriveEnv(scenario)
