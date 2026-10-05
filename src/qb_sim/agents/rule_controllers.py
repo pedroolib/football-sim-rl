@@ -252,6 +252,7 @@ class HeuristicQuarterback(BaseAgent):
             time_step=self._config.dt,
             elapsed_seconds=state.elapsed_seconds,
             time_remaining=max(0.0, self._config.max_play_duration - state.elapsed_seconds),
+            carrier_id=state.carrier_id,
         )
 
     def act(self, observation: QuarterbackObservation) -> Move | Throw | None:
@@ -340,7 +341,10 @@ class ScramblingQuarterback(HeuristicQuarterback):
         self._sideline_margin = sideline_margin
 
     def act(self, observation: QuarterbackObservation) -> Move | Throw | None:
-        if observation.ball_status is BallStatus.CARRIED:
+        if (
+            observation.ball_status is BallStatus.CARRIED
+            and observation.carrier_id == self.player_id
+        ):
             return self._run_action(observation)
         if observation.ball_status is not BallStatus.HELD:
             return None

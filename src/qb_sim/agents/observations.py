@@ -66,6 +66,7 @@ class QuarterbackObservation:
     time_step: float
     elapsed_seconds: float
     time_remaining: float
+    carrier_id: str | None = None
 
 
 Observation = ReceiverObservation | DefenderObservation | QuarterbackObservation

@@ -159,13 +159,27 @@ class _RecordingScrambler(ScramblingQuarterback):
     def __init__(self, player_id: str, config) -> None:
         super().__init__(player_id, config)
         self.statuses: list[BallStatus] = []
+        self.carriers: list[str | None] = []
 
     def decide(self, state):
         self.statuses.append(state.ball.status)
+        self.carriers.append(state.carrier_id)
         return super().decide(state)
 
 
-def test_scrambler_drive_demonstrations_sustain_carried_runs() -> None:
+def test_scrambling_quarterback_ignores_a_receiver_carrier() -> None:
+    play = Play()
+    play.state.ball.status = BallStatus.CARRIED
+    play.state.carrier_id = "wr1"
+    play.state.elapsed_seconds = 0.5
+    controller = ScramblingQuarterback("qb", play.config)
+
+    action = controller.decide(play.state)
+
+    assert action is None
+
+
+def test_scrambler_demos_do_not_run_while_a_receiver_carries() -> None:
     from qb_sim.rules.scenarios import get_scenario
     from qb_sim.training.imitation import collect_drive_demonstrations
 
@@ -173,16 +187,42 @@ def test_scrambler_drive_demonstrations_sustain_carried_runs() -> None:
     scrambler = _RecordingScrambler("qb", scenario.config)
 
     dataset = collect_drive_demonstrations(
-        scenario, episodes=5, seed_start=0, quarterback=scrambler
+        scenario, episodes=10, seed_start=0, quarterback=scrambler
+    )
+
+    receiver_carries = 0
+    for status, carrier, action in zip(
+        scrambler.statuses, scrambler.carriers, dataset.actions, strict=True
+    ):
+        if status is BallStatus.CARRIED and carrier not in (None, "qb"):
+            receiver_carries += 1
+            assert not (action[0] > 0.5 and action[5] < 0.0)
+    assert receiver_carries > 0
+
+
+def test_scrambler_drive_demonstrations_sustain_carried_runs() -> None:
+    from qb_sim.rules.scenarios import get_scenario
+    from qb_sim.training.imitation import collect_drive_demonstrations
+
+    scenario = get_scenario("default")
+    scrambler = _RecordingScrambler("qb", scenario.config)
+
+    dataset = collect_drive_demonstrations(
+        scenario, episodes=3, seed_start=0, quarterback=scrambler
     )
 
     assert len(scrambler.statuses) == len(dataset.actions)
-    carried = np.array(
-        [status is BallStatus.CARRIED for status in scrambler.statuses],
+    qb_carries = np.array(
+        [
+            status is BallStatus.CARRIED and carrier == "qb"
+            for status, carrier in zip(
+                scrambler.statuses, scrambler.carriers, strict=True
+            )
+        ],
         dtype=bool,
     )
     forward_runs = (dataset.actions[:, 0] > 0.5) & (dataset.actions[:, 5] < 0.0)
-    sustained = carried & forward_runs
+    sustained = qb_carries & forward_runs
     consecutive = sustained[:-1] & sustained[1:]
     assert consecutive.any()
 
