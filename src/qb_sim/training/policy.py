@@ -21,8 +21,6 @@ from qb_sim.training.drive_observations import drive_observation_from_state
 from qb_sim.training.observations import OBSERVATION_SIZE, observation_from_state
 from qb_sim.training.role_context_observations import (
     BALL_LANDING_SLOTS,
-    DEFENDER_CAPABILITY_SLOTS,
-    DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_DRIVE_OBSERVATION_SIZE,
     defender_context_observation,
     receiver_context_observation,
@@ -32,10 +30,7 @@ from qb_sim.training.role_context_observations import (
 SUPPORTED_PLAY_SIZES = (OBSERVATION_SIZE,)
 SUPPORTED_DRIVE_SIZES = (62, 61, 57)
 SUPPORTED_RECEIVER_SIZES = (43, 40, 38, 35, 31)
-SUPPORTED_DEFENDER_SIZES = (
-    DEFENDER_CONTEXT_OBSERVATION_SIZE,
-    DEFENDER_CONTEXT_OBSERVATION_SIZE - DEFENDER_CAPABILITY_SLOTS,
-)
+SUPPORTED_DEFENDER_SIZES = (31, 27, 24)
 
 
 def _model_observation_size(model: Any) -> int | None:
@@ -250,7 +245,7 @@ def load_policy(path: str | Path, scenario_name: str = "default") -> PolicyQuart
     from stable_baselines3 import PPO
 
     scenario = get_scenario(scenario_name)
-    model = PPO.load(str(path), device="auto")
+    model = PPO.load(str(path), device="cpu")
     _ensure_observation_size(model, SUPPORTED_PLAY_SIZES, "qb", path)
     return PolicyQuarterback(model, scenario.config)
 
@@ -260,7 +255,7 @@ def load_drive_policy(path: str | Path, scenario_name: str = "rushed") -> DriveP
     from stable_baselines3 import PPO
 
     scenario = get_scenario(scenario_name)
-    model = PPO.load(str(path), device="auto")
+    model = PPO.load(str(path), device="cpu")
     _ensure_observation_size(model, SUPPORTED_DRIVE_SIZES, "qb", path)
     return DrivePolicyQuarterback(model, scenario.config)
 
@@ -274,7 +269,7 @@ def load_receiver_policy(
     from stable_baselines3 import PPO
 
     scenario = get_scenario(scenario_name)
-    model = PPO.load(str(path), device="auto")
+    model = PPO.load(str(path), device="cpu")
     _ensure_observation_size(model, SUPPORTED_RECEIVER_SIZES, player_id, path)
     return ReceiverPolicy(model, scenario.config, player_id)
 
@@ -288,6 +283,6 @@ def load_defender_policy(
     from stable_baselines3 import PPO
 
     scenario = get_scenario(scenario_name)
-    model = PPO.load(str(path), device="auto")
+    model = PPO.load(str(path), device="cpu")
     _ensure_observation_size(model, SUPPORTED_DEFENDER_SIZES, player_id, path)
     return DefenderPolicy(model, scenario.config, player_id)

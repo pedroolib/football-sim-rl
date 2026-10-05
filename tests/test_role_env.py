@@ -403,8 +403,14 @@ def test_role_drive_defender_reward_is_zero_sum() -> None:
 
 
 def _learner_potential(env: RoleDriveEnv) -> float:
-    target_id = defender_target(env.play, env.learner_id)
     state = env.play.state
+    ball = state.ball
+    if ball.status is BallStatus.IN_FLIGHT and ball.target is not None:
+        distance = float(
+            np.linalg.norm(state.player(env.learner_id).position - ball.target)
+        )
+        return defender_potential(distance, env.reward_config.shaping_scale)
+    target_id = defender_target(env.play, env.learner_id)
     distance = float(
         np.linalg.norm(
             state.player(env.learner_id).position - state.player(target_id).position
@@ -439,6 +445,60 @@ def test_role_drive_shaping_is_potential_based() -> None:
         )
         assert shaped_reward == pytest.approx(expected)
     assert any(term != 0.0 for term in terminal_terms)
+
+
+def test_role_drive_potential_targets_the_landing_point_while_in_flight() -> None:
+    env = RoleDriveEnv(learner_id="cb1")
+    env.reset(seed=0)
+    state = env.play.state
+    state.ball.status = BallStatus.IN_FLIGHT
+    state.ball.target = vec2(70.0, 44.0)
+    defender = state.player("cb1")
+    scale = env.reward_config.shaping_scale
+
+    defender.position = vec2(50.0, 44.0)
+    far = env._potential(state)
+    defender.position = vec2(69.0, 44.0)
+    near = env._potential(state)
+
+    assert far == pytest.approx(defender_potential(20.0, scale))
+    assert near == pytest.approx(defender_potential(1.0, scale))
+    assert near > far
+
+
+def test_role_drive_potential_falls_back_without_a_landing_point() -> None:
+    env = RoleDriveEnv(learner_id="cb1")
+    env.reset(seed=0)
+    state = env.play.state
+    state.ball.status = BallStatus.IN_FLIGHT
+    state.ball.target = None
+    target_id = defender_target(env.play, env.learner_id)
+    distance = float(
+        np.linalg.norm(
+            state.player(env.learner_id).position - state.player(target_id).position
+        )
+    )
+
+    assert env._potential(state) == pytest.approx(
+        defender_potential(distance, env.reward_config.shaping_scale)
+    )
+
+
+def test_role_drive_potential_tracks_the_assigned_target_while_held() -> None:
+    env = RoleDriveEnv(learner_id="cb1")
+    env.reset(seed=0)
+    state = env.play.state
+    assert state.ball.status is BallStatus.HELD
+    target_id = defender_target(env.play, env.learner_id)
+    distance = float(
+        np.linalg.norm(
+            state.player(env.learner_id).position - state.player(target_id).position
+        )
+    )
+
+    assert env._potential(state) == pytest.approx(
+        defender_potential(distance, env.reward_config.shaping_scale)
+    )
 
 
 def test_role_drive_step_after_termination_raises() -> None:

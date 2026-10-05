@@ -14,6 +14,7 @@ from qb_sim.training.role_context_observations import (
     receiver_context_observation,
     receiver_drive_observation,
 )
+from qb_sim.training.role_observations import defender_observation
 
 
 def test_receiver_context_observation_has_the_documented_size_and_range() -> None:
@@ -133,6 +134,89 @@ def test_defender_context_encodes_down_distance_and_goal() -> None:
     assert observation[19:22].tolist() == [0.0, 0.0, 1.0]
     assert observation[22] == pytest.approx(0.5)
     assert observation[23] == pytest.approx(0.6)
+
+
+def test_defender_context_appends_ball_relative_position_and_velocity() -> None:
+    play = Play()
+    ball = play.state.ball
+    ball.position = vec2(45.0, 38.0)
+    ball.velocity = vec2(3.0, -2.0)
+    defender = play.state.player("cb1")
+
+    observation = defender_context_observation(
+        play.state, "cb1", "wr1", play.config, DriveState(los=40.0)
+    )
+
+    field = play.config.field
+    assert observation.shape == (31,)
+    assert observation[27] == pytest.approx(
+        (ball.position[0] - defender.position[0]) / field.length_yards
+    )
+    assert observation[28] == pytest.approx(
+        (ball.position[1] - defender.position[1]) / field.width_yards
+    )
+    assert observation[29] == pytest.approx(ball.velocity[0] / play.config.ball_speed)
+    assert observation[30] == pytest.approx(ball.velocity[1] / play.config.ball_speed)
+
+
+def test_defender_context_tracks_the_ball_in_flight() -> None:
+    play = Play()
+    play.throw_to(vec2(70.0, 44.0), power=0.8)
+
+    observation = defender_context_observation(
+        play.state, "cb1", "wr1", play.config, DriveState(los=40.0)
+    )
+
+    ball = play.state.ball
+    defender = play.state.player("cb1")
+    assert ball.status is BallStatus.IN_FLIGHT
+    assert observation[27] == pytest.approx(
+        (ball.position[0] - defender.position[0]) / play.config.field.length_yards
+    )
+    assert observation[28] == pytest.approx(
+        (ball.position[1] - defender.position[1]) / play.config.field.width_yards
+    )
+    assert observation[29] == pytest.approx(ball.velocity[0] / play.config.ball_speed)
+    assert observation[30] == pytest.approx(ball.velocity[1] / play.config.ball_speed)
+
+
+def test_defender_context_ball_features_are_clipped_and_finite() -> None:
+    play = Play()
+    play.state.ball.position = vec2(1000.0, -1000.0)
+    play.state.ball.velocity = vec2(1000.0, -1000.0)
+
+    observation = defender_context_observation(
+        play.state, "cb1", "wr1", play.config, DriveState(los=40.0)
+    )
+
+    assert DEFENDER_CONTEXT_OBSERVATION_SIZE == 31
+    assert np.all(np.isfinite(observation))
+    assert np.all(observation >= -1.0)
+    assert np.all(observation <= 1.0)
+    assert observation[27] == pytest.approx(1.0)
+    assert observation[28] == pytest.approx(-1.0)
+
+
+def test_defender_context_keeps_the_legacy_27_and_24_prefixes() -> None:
+    play = Play()
+    play.state.ball.position = vec2(50.0, 40.0)
+    play.state.ball.velocity = vec2(3.0, 1.0)
+    drive_state = DriveState(los=40.0, down=2, distance=7.0)
+
+    observation = defender_context_observation(
+        play.state, "cb1", "wr1", play.config, drive_state
+    )
+    base = defender_observation(play.state, "cb1", "wr1", play.config)
+    legacy_24 = np.array(
+        [*base.tolist(), 0.0, 1.0, 0.0, 7.0 / 40.0, 0.6], dtype=np.float32
+    )
+
+    np.testing.assert_allclose(observation[:19], base)
+    np.testing.assert_allclose(observation[:24], legacy_24)
+    np.testing.assert_allclose(
+        observation[24:27],
+        [play.config.defender_speed / 10.0, play.config.receiver_speed / 10.0, 0.0],
+    )
 
 
 def test_receiver_context_zeroes_ball_landing_features_when_held() -> None:

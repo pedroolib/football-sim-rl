@@ -1,6 +1,7 @@
 """Live Pygame dashboard: watch a policy improve while training runs."""
 
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -293,9 +294,16 @@ class TrainingDashboard:
                 panel.rebuild(self.scenario, drive_config, qb_policy, opponents)
 
     def _reload_composition(self) -> None:
-        self._composition_policies = self._build_composition_policies()
-        self._rebuild_composition()
-        self._composition_dirty = False
+        """Reload every selected model; never let a bad model kill the app."""
+        try:
+            policies = self._build_composition_policies()
+            self._composition_policies = policies
+            self._rebuild_composition()
+        except Exception as error:  # noqa: BLE001 - keep the previous policies
+            traceback.print_exc()
+            print(f"composición no recargada: {error}")
+        finally:
+            self._composition_dirty = False
 
     @property
     def checkpoint_path(self) -> Path | None:

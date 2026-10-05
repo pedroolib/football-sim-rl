@@ -1,4 +1,4 @@
-"""Context-enriched role observations for Stage B (WR 38/43, defenders 27).
+"""Context-enriched role observations for Stage B (WR 38/43, defenders 31).
 
 WR context layout: 19 base + route one-hot (8) + yards to the goal line +
 next-waypoint delta (length and width) + capped distance to that waypoint + own
@@ -9,7 +9,9 @@ WR drive layout: the 35 context values + down one-hot (3), distance/40, and
 yards from the line of scrimmage to the goal line, then the same 3 landing
 features, 43 total, so the legacy 40-value drive layout stays a prefix.
 Defender layout: 19 base + down one-hot (3) + distance/40 + yards to the goal
-line + own speed, target speed, and the last throw distance.
+line + own speed, target speed, and the last throw distance (27), then the ball
+relative position (length/width) and velocity, 31 total, so the legacy 27- and
+24-value layouts stay prefixes.
 """
 
 import numpy as np
@@ -34,7 +36,10 @@ RECEIVER_CONTEXT_OBSERVATION_SIZE = RECEIVER_BASE_OBSERVATION_SIZE + BALL_LANDIN
 RECEIVER_DRIVE_OBSERVATION_SIZE = (
     RECEIVER_BASE_OBSERVATION_SIZE + 5 + BALL_LANDING_SLOTS
 )
-DEFENDER_CONTEXT_OBSERVATION_SIZE = 19 + 3 + 2 + DEFENDER_CAPABILITY_SLOTS
+DEFENDER_BALL_SLOTS = 4
+DEFENDER_CONTEXT_OBSERVATION_SIZE = (
+    19 + 3 + 2 + DEFENDER_CAPABILITY_SLOTS + DEFENDER_BALL_SLOTS
+)
 DISTANCE_SCALE = 40.0
 WAYPOINT_DISTANCE_SCALE = 10.0
 LAST_THROW_DISTANCE_SCALE = 50.0
@@ -232,7 +237,12 @@ def defender_context_observation(
     drive_state: DriveState,
     goal_line: float = 100.0,
 ) -> np.ndarray:
-    """Defender observation plus down, distance, and field position."""
+    """Defender observation plus down, distance, field position, and the ball.
+
+    The ball block is appended last so the 27- and 24-value layouts remain
+    prefixes; its position is meaningful in every status (the QB spot while
+    held, the ball spot in flight, and the carrier spot while carried).
+    """
     values = [
         float(value)
         for value in defender_observation(state, player_id, target_id, config)
@@ -247,6 +257,16 @@ def defender_context_observation(
             _player_speed(state.player(player_id), config) / 10.0,
             (_player_speed(target, config) / 10.0) if target is not None else 0.0,
             (drive_state.last_throw_distance or 0.0) / LAST_THROW_DISTANCE_SCALE,
+        )
+    )
+    defender = state.player(player_id)
+    ball = state.ball
+    values.extend(
+        (
+            (ball.position[0] - defender.position[0]) / config.field.length_yards,
+            (ball.position[1] - defender.position[1]) / config.field.width_yards,
+            ball.velocity[0] / config.ball_speed,
+            ball.velocity[1] / config.ball_speed,
         )
     )
     return np.clip(np.array(values, dtype=np.float32), -1.0, 1.0)

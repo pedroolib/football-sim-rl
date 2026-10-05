@@ -16,6 +16,7 @@ from qb_sim.training.role_context_observations import (  # noqa: E402
     DEFENDER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_CONTEXT_OBSERVATION_SIZE,
     RECEIVER_DRIVE_OBSERVATION_SIZE,
+    defender_context_observation,
     receiver_context_observation,
     receiver_drive_observation,
 )
@@ -69,6 +70,10 @@ def test_defender_loader_accepts_legacy_and_current_models(monkeypatch) -> None:
     _patch_load(monkeypatch, 24)
     legacy = policy_module.load_defender_policy("old.zip", "stage_b", "cb1")
     assert isinstance(legacy, policy_module.DefenderPolicy)
+
+    _patch_load(monkeypatch, 27)
+    previous = policy_module.load_defender_policy("previous.zip", "stage_b", "cb1")
+    assert isinstance(previous, policy_module.DefenderPolicy)
 
     _patch_load(monkeypatch, DEFENDER_CONTEXT_OBSERVATION_SIZE)
     current = policy_module.load_defender_policy("new.zip", "stage_b", "cb1")
@@ -167,6 +172,23 @@ def test_defender_policy_slices_for_a_legacy_model() -> None:
 
     assert model.seen is not None
     assert model.seen.shape == (24,)
+    full = defender_context_observation(state, "cb1", "wr1", config, drive_state)
+    assert np.allclose(model.seen, full[:24])
+
+
+def test_defender_policy_slices_the_current_layout_for_a_27_value_model() -> None:
+    config = get_scenario("stage_b").config
+    state = Play(config, seed=0).state
+    drive_state = Drive(config, DriveConfig(), seed=0).state
+    model = _RecordingModel(27)
+    policy = policy_module.DefenderPolicy(model, config, "cb1")
+
+    policy(state, "wr1", drive_state)
+
+    assert model.seen is not None
+    assert model.seen.shape == (27,)
+    full = defender_context_observation(state, "cb1", "wr1", config, drive_state)
+    assert np.allclose(model.seen, full[:27])
 
 
 def test_drive_policy_slices_for_a_legacy_model() -> None:
@@ -187,7 +209,25 @@ def test_expected_sizes_match_the_current_builders() -> None:
     assert DRIVE_OBSERVATION_SIZE == 62
     assert RECEIVER_CONTEXT_OBSERVATION_SIZE == 38
     assert RECEIVER_DRIVE_OBSERVATION_SIZE == 43
-    assert DEFENDER_CONTEXT_OBSERVATION_SIZE == 27
+    assert DEFENDER_CONTEXT_OBSERVATION_SIZE == 31
     assert policy_module.SUPPORTED_RECEIVER_SIZES == (43, 40, 38, 35, 31)
-    assert policy_module.SUPPORTED_DEFENDER_SIZES == (27, 24)
+    assert policy_module.SUPPORTED_DEFENDER_SIZES == (31, 27, 24)
     assert policy_module.SUPPORTED_DRIVE_SIZES == (62, 61, 57)
+
+
+def test_all_loaders_pin_models_to_cpu(monkeypatch) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    def fake_load(path, device=None):
+        calls.append((path, device))
+        size = {"qb": 36, "drive": 61, "wr": 35, "cb": 27}[path]
+        return SimpleNamespace(observation_space=SimpleNamespace(shape=(size,)))
+
+    monkeypatch.setattr(sb3.PPO, "load", fake_load)
+
+    policy_module.load_policy("qb", "default")
+    policy_module.load_drive_policy("drive", "stage_b")
+    policy_module.load_receiver_policy("wr", "stage_b", "wr1")
+    policy_module.load_defender_policy("cb", "stage_b", "cb1")
+
+    assert [device for _, device in calls] == ["cpu"] * 4

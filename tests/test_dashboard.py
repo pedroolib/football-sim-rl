@@ -522,3 +522,28 @@ def test_dashboard_composition_lineup_rows(dummy_video, tmp_path) -> None:
         assert all(label == "reglas" for _, label in rows)
     finally:
         dashboard.close()
+
+
+def test_dashboard_composition_reload_survives_a_bad_model(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    previous = dict(dashboard._composition_policies)
+
+    def broken() -> dict:
+        raise RuntimeError("modelo roto")
+
+    dashboard._build_composition_policies = broken
+    dashboard._composition_dirty = True
+    try:
+        dashboard._reload_composition()
+        assert not dashboard._composition_dirty
+        assert dashboard._composition_policies == previous
+    finally:
+        dashboard.close()

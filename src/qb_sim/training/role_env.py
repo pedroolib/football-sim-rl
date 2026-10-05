@@ -12,7 +12,7 @@ from qb_sim.agents.loop import build_rule_agents
 from qb_sim.agents.rule_controllers import HeuristicQuarterback
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
-from qb_sim.engine.entities import PlayOutcome
+from qb_sim.engine.entities import BallStatus, PlayOutcome
 from qb_sim.engine.geometry import vec2
 from qb_sim.rules.drive import Drive, DriveConfig, DriveState
 from qb_sim.rules.play import Play
@@ -569,6 +569,12 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
         return float(np.linalg.norm(learner.position - target.position))
 
     def _potential(self, state) -> float:
+        ball = state.ball
+        if ball.status is BallStatus.IN_FLIGHT and ball.target is not None:
+            distance = float(
+                np.linalg.norm(state.player(self.learner_id).position - ball.target)
+            )
+            return defender_potential(distance, self.reward_config.shaping_scale)
         target_id = defender_target(self.play, self.learner_id)
         if target_id is None:
             return 0.0
