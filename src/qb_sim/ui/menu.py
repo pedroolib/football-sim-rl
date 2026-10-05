@@ -123,6 +123,12 @@ class ParameterMenu:
             return
         self.index = max(0, min(self.index + direction, len(self.entries) - 1))
 
+    def move_to(self, index: int) -> None:
+        """Jump to an absolute row, clamped to the list."""
+        if not self.entries:
+            return
+        self.index = max(0, min(index, len(self.entries) - 1))
+
     def adjust(self, direction: int) -> bool:
         """Adjust the selected parameter; keep the old value when invalid."""
         entry = self.entries[self.index]
@@ -324,6 +330,22 @@ class ModelMenu:
         """Move the tree cursor."""
         rows = self.visible_rows()
         self.cursor = max(0, min(self.cursor + direction, len(rows) - 1))
+
+    def move_to(self, index: int) -> None:
+        """Jump to an absolute tree row, clamped to the visible tree."""
+        rows = self.visible_rows()
+        self.cursor = max(0, min(index, len(rows) - 1))
+
+    def focus_current(self) -> None:
+        """Expand the current model's role and folder and put the cursor on it."""
+        kind, role, _, _ = self.focused_row()
+        option = self.current(role)
+        self.expanded_roles.add(role)
+        self.expanded_folders.add((role, option.group or "reglas"))
+        for index, row in enumerate(self.visible_rows()):
+            if row[0] == "option" and row[1] == role and row[3] == option:
+                self.cursor = index
+                return
 
     def labels(self, role: str) -> list[str]:
         """Available labels for a role."""

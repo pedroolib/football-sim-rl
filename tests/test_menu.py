@@ -336,3 +336,23 @@ def test_model_menu_move_clamps_the_cursor() -> None:
     menu.move(100)
     assert menu.cursor == len(ModelMenu.ROLES) - 1
     assert menu.role() == ModelMenu.ROLES[-1]
+
+
+def test_model_menu_focus_current_reveals_the_selected_model() -> None:
+    menu = ModelMenu(
+        {
+            role: [
+                ModelOption("reglas", None, group="reglas"),
+                ModelOption("deep", None, observation_size=35, group="wr"),
+            ]
+            for role in ModelMenu.ROLES
+        }
+    )
+    assert menu.choose("wr2", "deep")
+    menu.cursor = ModelMenu.ROLES.index("wr2")
+
+    menu.focus_current()
+
+    kind, role, group, option = menu.focused_row()
+    assert (kind, role, group) == ("option", "wr2", "wr")
+    assert option == menu.current("wr2")

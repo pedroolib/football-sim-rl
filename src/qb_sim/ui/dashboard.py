@@ -121,6 +121,8 @@ class TrainingDashboard:
         self._model_menu: ModelMenu | None = model_menu
         self._composition_policies: dict = {}
         self._composition_dirty = False
+        self._resume_after_menu = False
+        self._toast: tuple[str, float] | None = None
         if env_kind == "drive":
             self._policy: LearnerPolicy | None = rule_drive_quarterback_policy(
                 self.scenario.config
@@ -464,15 +466,19 @@ class TrainingDashboard:
             elif event.type == pygame.KEYUP:
                 self._repeat_timers.pop(event.key, None)
             elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_s:
+                    self._save_screenshot()
                 if self._menu_mode is not None:
                     if event.key == pygame.K_ESCAPE:
                         self._close_menu()
                     elif event.key == pygame.K_m and self.env_kind == "composition":
                         self._close_menu()
-                        self._menu_mode = "params"
+                        self._open_menu("params")
                     elif event.key == pygame.K_n and self.env_kind == "composition":
                         self._close_menu()
-                        self._menu_mode = "models"
+                        self._open_menu("models")
+                    elif event.key in (pygame.K_HOME, pygame.K_END):
+                        self._jump_menu(event.key == pygame.K_END)
                     elif (
                         event.key in (pygame.K_RETURN, pygame.K_KP_ENTER)
                         and self._menu_mode == "models"
@@ -487,9 +493,9 @@ class TrainingDashboard:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key == pygame.K_m and self.env_kind == "composition":
-                    self._menu_mode = "params"
+                    self._open_menu("params")
                 elif event.key == pygame.K_n and self.env_kind == "composition":
-                    self._menu_mode = "models"
+                    self._open_menu("models")
                 elif event.key == pygame.K_p:
                     self.paused = not self.paused
                 elif event.key in _SPEED_KEYS:
@@ -539,12 +545,54 @@ class TrainingDashboard:
             self._model_menu.cycle(self._model_menu.role(), direction)
             self._composition_dirty = True
 
+    def _jump_menu(self, to_end: bool) -> None:
+        if self._menu_mode == "params" and self._parameter_menu is not None:
+            entries = self._parameter_menu.entries
+            self._parameter_menu.move_to(len(entries) - 1 if to_end else 0)
+        elif self._menu_mode == "models" and self._model_menu is not None:
+            rows = self._model_menu.visible_rows()
+            self._model_menu.move_to(len(rows) - 1 if to_end else 0)
+
+    def _open_menu(self, mode: str) -> None:
+        """Open an overlay, pausing the demo and revealing the current model."""
+        self._menu_mode = mode
+        self._repeat_timers.clear()
+        if not self.paused:
+            self.paused = True
+            self._resume_after_menu = True
+        if mode == "models" and self._model_menu is not None:
+            self._model_menu.focus_current()
+
     def _close_menu(self) -> None:
-        """Close the overlay, reloading the composition once if it changed."""
+        """Close the overlay, restoring pause and reloading if it changed."""
         self._menu_mode = None
         self._repeat_timers.clear()
+        if self._resume_after_menu:
+            self.paused = False
+            self._resume_after_menu = False
         if self._composition_dirty:
             self._reload_composition()
+
+    def _save_screenshot(self) -> Path:
+        """Save the current frame as a PNG next to the run and show a toast."""
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        path = self.run_dir / f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}.png"
+        pygame.image.save(self.screen, path)
+        self._toast = (f"captura: {path.name}", time.monotonic() + 2.5)
+        return path
+
+    def _draw_toast(self, text: str) -> None:
+        image = self.font_small.render(text, True, theme.TEXT)
+        pad = theme.SPACE_MD
+        rect = pygame.Rect(
+            (self.screen.get_width() - image.get_width() - 2 * pad) // 2,
+            self.screen.get_height() - 54,
+            image.get_width() + 2 * pad,
+            28,
+        )
+        pygame.draw.rect(self.screen, theme.SURFACE_ALT, rect, border_radius=theme.RADIUS_SM)
+        pygame.draw.rect(self.screen, theme.BORDER, rect, 1, border_radius=theme.RADIUS_SM)
+        self.screen.blit(image, (rect.x + pad, rect.y + 5))
 
     def _draw_menu(self) -> None:
         rows: list[tuple[str, str, float | None, tuple[float, float] | None]] = []
@@ -741,6 +789,12 @@ class TrainingDashboard:
         self._draw_metrics()
         if self._menu_mode is not None:
             self._draw_menu()
+        if self._toast is not None:
+            text, expiry = self._toast
+            if time.monotonic() >= expiry:
+                self._toast = None
+            else:
+                self._draw_toast(text)
         pygame.display.flip()
 
     def _draw_header(self) -> None:
@@ -882,10 +936,19 @@ class TrainingDashboard:
             ("completados", f"{completion:0.1f}%"),
         ]
 
+    def _lineup_rows(self) -> list[tuple[str, str]]:
+        """Role -> selected model label, for the composition metrics column."""
+        if self._model_menu is None:
+            return []
+        return [
+            (role, ModelMenu.display(self._model_menu.current(role)))
+            for role in self._model_menu.options
+        ]
+
     def _controls_hint(self) -> str:
         if self.env_kind == "composition":
-            return "M params · N modelos · P pausa · 1/2/3 · R · Esc"
-        return "Izq/Der checkpoint · L vivo · P pausa · R · Esc"
+            return "M params · N modelos · P pausa · 1/2/3 · R · S captura · Esc"
+        return "Izq/Der checkpoint · L vivo · P pausa · R · S captura · Esc"
 
     def _draw_metrics(self) -> None:
         rect = pygame.Rect(
@@ -920,6 +983,8 @@ class TrainingDashboard:
             ),
         )
         y = self._draw_section(x, y, width, "RENDIMIENTO", self._metric_rows())
+        if self.env_kind == "composition" and self._model_menu is not None:
+            y = self._draw_section(x, y, width, "MODELOS", self._lineup_rows())
         chart_height = max(120, rect.bottom - y - 64)
         self._draw_curve(rect, progress, top=y, height=chart_height)
         hint = self.font_small.render(self._controls_hint(), True, theme.TEXT_MUTED)

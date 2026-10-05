@@ -409,20 +409,116 @@ def test_dashboard_model_menu_enter_expands_and_selects(dummy_video, tmp_path) -
         parameter_menu=parameters,
     )
     enter = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN)
+    home = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_HOME)
     try:
         dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n)])
+        assert menu.focused_row()[0] == "option"
+
+        dashboard._handle_events([enter])
+        assert menu.current("qb").label == "reglas"
+        assert dashboard._composition_dirty
+
+        dashboard._handle_events([home])
+        assert menu.focused_row()[0] == "role"
+        dashboard._handle_events([enter])
         assert all(row[0] == "role" for row in menu.visible_rows())
 
         dashboard._handle_events([enter])
         assert any(row[0] == "folder" for row in menu.visible_rows())
+    finally:
+        dashboard.close()
 
-        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)])
-        dashboard._handle_events([enter])
-        assert any(row[0] == "option" for row in menu.visible_rows())
 
-        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)])
-        dashboard._handle_events([enter])
-        assert menu.current("qb").label == "reglas"
-        assert dashboard._composition_dirty
+def test_dashboard_models_menu_focuses_the_current_model_on_open(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n)])
+        kind, role, _, option = menu.focused_row()
+        assert kind == "option"
+        assert option == menu.current(role)
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_menu_pauses_and_resumes(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m)])
+        assert dashboard.paused
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE)])
+        assert not dashboard.paused
+
+        dashboard.paused = True
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m)])
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE)])
+        assert dashboard.paused
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_menu_home_and_end_jump(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n)])
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_END)])
+        assert menu.cursor == len(menu.visible_rows()) - 1
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_HOME)])
+        assert menu.cursor == 0
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_screenshot_key_saves_a_png(dummy_video, tmp_path) -> None:
+    dashboard = TrainingDashboard(tmp_path, panels=1, screen_size=(640, 360))
+    try:
+        dashboard.draw_frame()
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s)])
+
+        shots = list(tmp_path.glob("screenshot_*.png"))
+        assert len(shots) == 1
+        assert shots[0].stat().st_size > 0
+        assert dashboard._toast is not None
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_composition_lineup_rows(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    try:
+        rows = dashboard._lineup_rows()
+        assert [role for role, _ in rows] == list(ModelMenu.ROLES)
+        assert all(label == "reglas" for _, label in rows)
     finally:
         dashboard.close()
