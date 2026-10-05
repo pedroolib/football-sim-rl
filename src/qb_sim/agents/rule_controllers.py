@@ -340,6 +340,8 @@ class ScramblingQuarterback(HeuristicQuarterback):
         self._sideline_margin = sideline_margin
 
     def act(self, observation: QuarterbackObservation) -> Move | Throw | None:
+        if observation.ball_status is BallStatus.CARRIED:
+            return self._run_action(observation)
         if observation.ball_status is not BallStatus.HELD:
             return None
         routes_developed = observation.elapsed_seconds >= self._min_throw_seconds

@@ -3,6 +3,7 @@ import pytest
 
 from qb_sim.agents.rule_controllers import ScramblingQuarterback
 from qb_sim.engine.actions import Move, Throw
+from qb_sim.engine.entities import BallStatus, PlayOutcome
 from qb_sim.engine.geometry import vec2
 from qb_sim.rules.play import Play
 
@@ -99,6 +100,91 @@ def test_scrambling_quarterback_steers_away_from_the_sideline() -> None:
 
     assert isinstance(action, Move)
     assert action.direction[1] > 0.0
+
+
+@pytest.mark.parametrize("elapsed", [0.0, 0.5, 3.0])
+def test_scrambling_quarterback_keeps_running_as_the_carrier(elapsed: float) -> None:
+    play = Play()
+    play.state.ball.status = BallStatus.CARRIED
+    play.state.carrier_id = "qb"
+    play.state.elapsed_seconds = elapsed
+    controller = ScramblingQuarterback("qb", play.config)
+
+    action = controller.decide(play.state)
+
+    assert isinstance(action, Move)
+    assert action.direction[0] > 0.5
+    assert float(np.linalg.norm(action.direction)) == pytest.approx(1.0)
+
+
+def test_scrambler_env_drive_produces_a_positive_rush() -> None:
+    from qb_sim.rules.scenarios import get_scenario
+    from qb_sim.training.actions import encode_engine_action
+    from qb_sim.training.drive_env import QBDriveEnv
+
+    scenario = get_scenario("default")
+    env = QBDriveEnv(scenario)
+    try:
+        for seed in range(20):
+            env.reset(seed=seed)
+            scrambler = ScramblingQuarterback("qb", scenario.config)
+            scrambler.set_config(env.active_config)
+            terminated = truncated = False
+            for _ in range(400):
+                engine_action = scrambler.decide(env.play.state)
+                action = (
+                    encode_engine_action(engine_action)
+                    if engine_action is not None
+                    else np.zeros(6, dtype=np.float32)
+                )
+                _, _, terminated, truncated, info = env.step(action)
+                rush = next(
+                    (
+                        play
+                        for play in info["plays"]
+                        if play["outcome"] == PlayOutcome.RUSH.value
+                    ),
+                    None,
+                )
+                if rush is not None and rush["yards"] > 0.0:
+                    return
+                if terminated or truncated:
+                    break
+        pytest.fail("the scrambling QB never produced a positive rush")
+    finally:
+        env.close()
+
+
+class _RecordingScrambler(ScramblingQuarterback):
+    def __init__(self, player_id: str, config) -> None:
+        super().__init__(player_id, config)
+        self.statuses: list[BallStatus] = []
+
+    def decide(self, state):
+        self.statuses.append(state.ball.status)
+        return super().decide(state)
+
+
+def test_scrambler_drive_demonstrations_sustain_carried_runs() -> None:
+    from qb_sim.rules.scenarios import get_scenario
+    from qb_sim.training.imitation import collect_drive_demonstrations
+
+    scenario = get_scenario("rushed")
+    scrambler = _RecordingScrambler("qb", scenario.config)
+
+    dataset = collect_drive_demonstrations(
+        scenario, episodes=5, seed_start=0, quarterback=scrambler
+    )
+
+    assert len(scrambler.statuses) == len(dataset.actions)
+    carried = np.array(
+        [status is BallStatus.CARRIED for status in scrambler.statuses],
+        dtype=bool,
+    )
+    forward_runs = (dataset.actions[:, 0] > 0.5) & (dataset.actions[:, 5] < 0.0)
+    sustained = carried & forward_runs
+    consecutive = sustained[:-1] & sustained[1:]
+    assert consecutive.any()
 
 
 def test_scrambling_quarterback_is_deterministic() -> None:
