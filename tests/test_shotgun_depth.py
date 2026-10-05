@@ -130,5 +130,5 @@ def test_shotgun_positions_are_deterministic_for_a_seed() -> None:
 
 def test_stage_b_config_uses_the_balanced_run_setup() -> None:
     assert STAGE_B_CONFIG.qb_snap_depth_yards == pytest.approx(3.0)
-    assert STAGE_B_CONFIG.rusher_starts == ((27.0, 29.0),)
+    assert STAGE_B_CONFIG.rusher_starts == ((29.0, 29.0),)
     assert STAGE_B_CONFIG.carrier_fatigue_per_second == pytest.approx(0.12)

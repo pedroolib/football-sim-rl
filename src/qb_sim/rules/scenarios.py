@@ -82,7 +82,7 @@ MIXED_SCENARIO = Scenario(
 
 STAGE_B_CONFIG = replace(
     SimulationConfig(),
-    rusher_starts=((27.0, 29.0),),
+    rusher_starts=((29.0, 29.0),),
     carrier_fatigue_per_second=0.12,
     carrier_min_speed_factor=0.65,
     qb_snap_depth_yards=3.0,
