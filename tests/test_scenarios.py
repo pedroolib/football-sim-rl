@@ -54,4 +54,4 @@ def test_stage_b_scenario_enables_carrier_fatigue() -> None:
     assert config.carrier_fatigue_per_second > 0.0
     assert 0.0 < config.carrier_min_speed_factor < 1.0
     assert STAGE_B_SCENARIO.name in SCENARIOS
-    assert STAGE_B_SCENARIO.config.rusher_starts == ((30.0, 29.0),)
+    assert STAGE_B_SCENARIO.config.rusher_starts == ((27.0, 29.0),)

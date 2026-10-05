@@ -41,6 +41,7 @@ class SimulationConfig:
     carrier_fatigue_per_second: float = 0.0
     carrier_min_speed_factor: float = 0.55
     qb_run_margin_yards: float = 1.0
+    qb_snap_depth_yards: float = 0.0
     tackle_radius: float = 1.0
     go_length_yards: float = 30.0
     slant_break_yards: float = 3.0
@@ -123,6 +124,8 @@ class SimulationConfig:
             raise ValueError("carrier_min_speed_factor must be between 0 and 1")
         if self.qb_run_margin_yards < 0.0:
             raise ValueError("qb_run_margin_yards must be non-negative")
+        if self.qb_snap_depth_yards < 0.0:
+            raise ValueError("qb_snap_depth_yards must be non-negative")
         if self.pressure_radius <= 0.0:
             raise ValueError("pressure_radius must be positive")
 

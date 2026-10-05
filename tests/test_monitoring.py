@@ -241,7 +241,9 @@ def test_role_play_panel_samples_the_los_inside_the_range() -> None:
 
     los = panel.play.line_of_scrimmage
     assert 30.0 <= los <= 40.0
-    assert panel.play.state.player("qb").position[0] == pytest.approx(los)
+    assert panel.play.state.player("qb").position[0] == pytest.approx(
+        los - panel.scenario.config.qb_snap_depth_yards
+    )
     assert contexts[0] == pytest.approx(los)
 
 

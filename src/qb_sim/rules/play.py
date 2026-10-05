@@ -73,11 +73,17 @@ class Play:
         return self._line_of_scrimmage
 
     def _validate_formation_shift(self) -> None:
-        if self._shift == 0.0:
-            return
+        quarterback_x = (
+            self.config.quarterback_start[0]
+            + self._shift
+            - self.config.qb_snap_depth_yards
+        )
+        if not self.config.field.contains(
+            vec2(quarterback_x, self.config.quarterback_start[1])
+        ):
+            raise ValueError("line_of_scrimmage shifts players outside the field")
         starts = (
-            (self.config.quarterback_start,)
-            + tuple(self.config.receiver_starts)
+            tuple(self.config.receiver_starts)
             + tuple(self.config.defender_starts)
             + tuple(self.config.rusher_starts)
         )
@@ -94,7 +100,12 @@ class Play:
         def shifted(start: tuple[float, float]) -> Vector2:
             return vec2(start[0] + self._shift, start[1])
 
-        quarterback_position = shifted(self.config.quarterback_start)
+        quarterback_position = vec2(
+            self.config.quarterback_start[0]
+            + self._shift
+            - self.config.qb_snap_depth_yards,
+            self.config.quarterback_start[1],
+        )
         players = [
             PlayerState(
                 quarterback_position.copy(),

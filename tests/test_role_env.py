@@ -58,7 +58,9 @@ def test_role_play_reset_samples_the_los_inside_the_range() -> None:
     assert 30.0 <= first <= 40.0
     assert 30.0 <= second <= 40.0
     assert first != second
-    assert env.play.state.player("qb").position[0] == pytest.approx(second)
+    assert env.play.state.player("qb").position[0] == pytest.approx(
+        second - env.active_config.qb_snap_depth_yards
+    )
 
 
 def test_randomized_env_applies_sampled_speeds() -> None:
@@ -184,7 +186,9 @@ def test_role_play_fixed_los_matches_the_unshifted_setup() -> None:
     observation, _ = env.reset(seed=0)
 
     assert env.play.line_of_scrimmage == pytest.approx(20.0)
-    assert env.play.state.player("qb").position[0] == pytest.approx(20.0)
+    assert env.play.state.player("qb").position[0] == pytest.approx(
+        20.0 - env.scenario.config.qb_snap_depth_yards
+    )
     assert env.play.state.player("wr1").position.tolist() == pytest.approx([20.0, 43.0])
     expected = receiver_context_observation(
         env.play.state, "wr1", env.scenario.config, env.routes[0]
