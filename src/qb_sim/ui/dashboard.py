@@ -56,12 +56,12 @@ _NEXT_KEYS = (pygame.K_RIGHT, pygame.K_RIGHTBRACKET)
 _MENU_KEYS = (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT)
 MENU_REPEAT_DELAY = 0.35
 MENU_REPEAT_INTERVAL = 0.06
-MENU_ACCENT = theme.PRIMARY_SOFT
+MENU_ACCENT = theme.PRIMARY
 MENU_TEXT = theme.TEXT
 MENU_MUTED = theme.TEXT_MUTED
-MENU_SELECTED = (30, 58, 100)
-MENU_CARD = theme.SURFACE
-MENU_ROW = theme.SURFACE_ALT
+MENU_SELECTED = theme.SURFACE_ALT
+MENU_CARD = theme.BACKGROUND
+MENU_ROW = theme.SURFACE
 HEADER_HEIGHT = 46
 CAMERA_FOLLOW_RATE = 4.0
 ENV_KINDS = ("passing", "drive", "role_play", "role_drive", "composition")
@@ -661,13 +661,19 @@ class TrainingDashboard:
         shadow = pygame.Surface((card.width, card.height), pygame.SRCALPHA)
         shadow.fill((0, 0, 0, 110))
         self.screen.blit(shadow, (card.x + 6, card.y + 8))
-        pygame.draw.rect(self.screen, MENU_CARD, card, border_radius=18)
-        pygame.draw.rect(self.screen, MENU_ACCENT, card, 2, border_radius=18)
+        pygame.draw.rect(self.screen, MENU_CARD, card, border_radius=theme.RADIUS_LG)
+        pygame.draw.rect(
+            self.screen,
+            theme.BORDER,
+            card,
+            1,
+            border_radius=theme.RADIUS_LG,
+        )
 
         title_image = self.font.render(title, True, MENU_TEXT)
         self.screen.blit(title_image, (card.x + 24, card.y + 16))
         if self._menu_mode == "models":
-            hint = "↑↓ mover · ←→ modelo · Enter abrir/elegir · M/N · Esc cerrar"
+            hint = "Arriba/Abajo · Izq/Der modelo · Enter abrir/elegir · Esc"
         else:
             hint = "Arriba/Abajo mover · Izq/Der ajustar (mantener) · M/N cambiar · Esc cerrar"
         hint_image = self.font.render(hint, True, MENU_MUTED)
@@ -677,7 +683,7 @@ class TrainingDashboard:
         )
         pygame.draw.line(
             self.screen,
-            (40, 52, 68),
+            theme.BORDER,
             (card.x + 20, card.y + 46),
             (card.right - 20, card.y + 46),
             1,
@@ -701,11 +707,10 @@ class TrainingDashboard:
                 MENU_TEXT if index == selected else MENU_MUTED,
             )
             self.screen.blit(name_image, (row_rect.x + 16, row_rect.y + 6))
-            value_color = MENU_ACCENT if index == selected else MENU_TEXT
-            value_image = self.font_mono.render(value_text, True, value_color)
+            value_image = self.font_mono.render(value_text, True, MENU_TEXT)
             if bounds is not None and bounds[1] > bounds[0] and numeric is not None:
                 track = pygame.Rect(row_rect.x + 360, row_rect.centery - 3, 210, 6)
-                pygame.draw.rect(self.screen, (44, 54, 68), track, border_radius=3)
+                pygame.draw.rect(self.screen, theme.BORDER, track, border_radius=3)
                 fraction = (numeric - bounds[0]) / (bounds[1] - bounds[0])
                 fraction = max(0.0, min(1.0, fraction))
                 fill = pygame.Rect(
@@ -715,12 +720,9 @@ class TrainingDashboard:
                     track.height,
                 )
                 pygame.draw.rect(self.screen, MENU_ACCENT, fill, border_radius=3)
-                pygame.draw.circle(
-                    self.screen,
-                    MENU_TEXT,
-                    (track.x + int(track.width * fraction), track.centery),
-                    6,
-                )
+                knob = (track.x + int(track.width * fraction), track.centery)
+                pygame.draw.circle(self.screen, MENU_TEXT, knob, 6)
+                pygame.draw.circle(self.screen, MENU_CARD, knob, 6, 2)
                 value_x = track.right + 22
             else:
                 value_x = row_rect.right - value_image.get_width() - 22
@@ -728,13 +730,13 @@ class TrainingDashboard:
 
         if len(rows) > visible_rows:
             track = pygame.Rect(card.right - 12, card.y + 56, 4, len(window) * row_height)
-            pygame.draw.rect(self.screen, (44, 54, 68), track, border_radius=2)
+            pygame.draw.rect(self.screen, theme.BORDER, track, border_radius=2)
             thumb_height = max(24, int(track.height * visible_rows / len(rows)))
             span = max(1, len(rows) - visible_rows)
             thumb_y = track.y + int((track.height - thumb_height) * start / span)
             pygame.draw.rect(
                 self.screen,
-                MENU_ACCENT,
+                theme.TEXT_MUTED,
                 pygame.Rect(track.x, thumb_y, track.width, thumb_height),
                 border_radius=2,
             )
@@ -814,7 +816,7 @@ class TrainingDashboard:
             (0, HEADER_HEIGHT - 1),
             (bar.right, HEADER_HEIGHT - 1),
         )
-        brand = self.font_sans.render("QB LAB", True, theme.ACCENT)
+        brand = self.font_sans.render("QB LAB", True, theme.TEXT)
         self.screen.blit(brand, (theme.SPACE_LG, 13))
         run = self.font_sans.render(self.run_dir.name, True, theme.TEXT)
         self.screen.blit(run, (theme.SPACE_LG + brand.get_width() + 14, 13))
@@ -841,6 +843,13 @@ class TrainingDashboard:
         header_height = 30
         pygame.draw.rect(self.screen, theme.SURFACE, rect, border_radius=theme.RADIUS_LG)
         pygame.draw.rect(self.screen, theme.BORDER, rect, 1, border_radius=theme.RADIUS_LG)
+        pygame.draw.line(
+            self.screen,
+            theme.BORDER,
+            (rect.x + 1, rect.y + header_height),
+            (rect.right - 1, rect.y + header_height),
+            1,
+        )
         field_rect = pygame.Rect(
             rect.x + margin,
             rect.y + header_height,
@@ -886,7 +895,7 @@ class TrainingDashboard:
             label = panel.last_outcome or "in_progress"
             stat = f"{panel.completion_pct:0.0f}%"
         label_image = self.font_sans.render(label.replace("_", " "), True, theme.TEXT)
-        stat_image = self.font_mono.render(stat, True, theme.ACCENT)
+        stat_image = self.font_mono.render(stat, True, theme.TEXT)
         self.screen.blit(label_image, (rect.x + margin, rect.y + 7))
         self.screen.blit(
             stat_image,
@@ -1077,12 +1086,12 @@ class TrainingDashboard:
         local = [(px - plot.x, py - plot.y) for px, py in points]
         pygame.draw.polygon(
             area,
-            (theme.PRIMARY[0], theme.PRIMARY[1], theme.PRIMARY[2], 46),
+            (theme.CHART[0], theme.CHART[1], theme.CHART[2], 46),
             local + [(plot.width, plot.height), (0, plot.height)],
         )
         self.screen.blit(area, plot.topleft)
-        pygame.draw.lines(self.screen, theme.PRIMARY_SOFT, False, points, 2)
-        pygame.draw.circle(self.screen, theme.ACCENT, points[-1], 4)
+        pygame.draw.lines(self.screen, theme.CHART, False, points, 2)
+        pygame.draw.circle(self.screen, theme.TEXT, points[-1], 4)
         high_image = self.font_small.render(f"{high:0.2f}", True, theme.TEXT_MUTED)
         low_image = self.font_small.render(f"{low:0.2f}", True, theme.TEXT_MUTED)
         self.screen.blit(high_image, (plot.right - high_image.get_width(), plot.y + 2))

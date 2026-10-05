@@ -16,6 +16,7 @@ def test_palette_tokens_are_valid_rgb() -> None:
         "PRIMARY",
         "PRIMARY_SOFT",
         "ACCENT",
+        "CHART",
         "DESTRUCTIVE",
         "SUCCESS",
     ):

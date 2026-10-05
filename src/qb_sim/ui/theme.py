@@ -1,18 +1,19 @@
-"""Shared visual tokens for the Pygame dashboard (dark, data-dense)."""
+"""Shared visual tokens for the Pygame dashboard (shadcn/ui dark, slate)."""
 
 import pygame
 
-BACKGROUND = (11, 18, 32)
-SURFACE = (18, 26, 42)
-SURFACE_ALT = (24, 35, 56)
-BORDER = (38, 51, 77)
-TEXT = (230, 236, 245)
-TEXT_MUTED = (143, 160, 184)
-PRIMARY = (59, 130, 246)
-PRIMARY_SOFT = (96, 165, 250)
-ACCENT = (245, 158, 11)
-DESTRUCTIVE = (239, 68, 68)
-SUCCESS = (34, 197, 94)
+BACKGROUND = (2, 8, 23)  # hsl(222.2 84% 4.9%)
+SURFACE = (15, 23, 42)  # slate-900 card lift
+SURFACE_ALT = (30, 41, 59)  # slate-800: muted, accent, borders
+BORDER = (30, 41, 59)
+TEXT = (248, 250, 252)  # slate-50
+TEXT_MUTED = (148, 163, 184)  # slate-400
+PRIMARY = (248, 250, 252)  # near-white, shadcn dark primary
+PRIMARY_SOFT = (203, 213, 225)  # slate-300 ring
+ACCENT = (96, 165, 250)  # blue-400 interactive hint
+CHART = (59, 130, 246)  # blue-500 chart line
+DESTRUCTIVE = (248, 113, 113)  # red-400
+SUCCESS = (74, 222, 128)  # green-400
 
 SPACE_XS = 4
 SPACE_SM = 8
@@ -21,15 +22,22 @@ SPACE_LG = 16
 SPACE_XL = 24
 
 RADIUS_SM = 6
-RADIUS_MD = 10
-RADIUS_LG = 14
+RADIUS_MD = 8
+RADIUS_LG = 12
 
 FONT_SIZE_SM = 14
 FONT_SIZE_MD = 17
 FONT_SIZE_LG = 21
 
-_SANS_CANDIDATES = ("firasans", "dejavusans", "liberationsans", "notosans", "arial")
-_MONO_CANDIDATES = ("firacode", "dejavusansmono", "liberationmono", "notosansmono", "courier")
+_SANS_CANDIDATES = ("inter", "geist", "notosans", "dejavusans", "liberationsans", "arial")
+_MONO_CANDIDATES = (
+    "jetbrainsmononerdfont",
+    "jetbrainsmono",
+    "firacode",
+    "dejavusansmono",
+    "liberationmono",
+    "courier",
+)
 
 
 def _load_font(candidates: tuple[str, ...], size: int, bold: bool) -> pygame.font.Font:
