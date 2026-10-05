@@ -327,6 +327,8 @@ class Play:
         speed = player.max_speed if player.max_speed > 0.0 else self._speed_for(player.role)
         if player.player_id == self.state.carrier_id:
             speed *= self._fatigue_factor()
+            if player.player_id == _QB_ID:
+                speed *= self.config.qb_run_speed_factor
         previous = player.position.copy()
         new_position = previous + action.direction * (speed * dt)
         if player.role is Role.QUARTERBACK:
