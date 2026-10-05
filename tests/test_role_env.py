@@ -405,9 +405,9 @@ def test_role_drive_defender_reward_is_zero_sum() -> None:
 def _learner_potential(env: RoleDriveEnv) -> float:
     state = env.play.state
     ball = state.ball
-    if ball.status is BallStatus.IN_FLIGHT and ball.target is not None:
+    if ball.status is BallStatus.IN_FLIGHT:
         distance = float(
-            np.linalg.norm(state.player(env.learner_id).position - ball.target)
+            np.linalg.norm(state.player(env.learner_id).position - ball.position)
         )
         return defender_potential(distance, env.reward_config.shaping_scale)
     target_id = defender_target(env.play, env.learner_id)
@@ -447,12 +447,12 @@ def test_role_drive_shaping_is_potential_based() -> None:
     assert any(term != 0.0 for term in terminal_terms)
 
 
-def test_role_drive_potential_targets_the_landing_point_while_in_flight() -> None:
+def test_role_drive_potential_targets_the_ball_while_in_flight() -> None:
     env = RoleDriveEnv(learner_id="cb1")
     env.reset(seed=0)
     state = env.play.state
     state.ball.status = BallStatus.IN_FLIGHT
-    state.ball.target = vec2(70.0, 44.0)
+    state.ball.position = vec2(70.0, 44.0)
     defender = state.player("cb1")
     scale = env.reward_config.shaping_scale
 
@@ -466,21 +466,18 @@ def test_role_drive_potential_targets_the_landing_point_while_in_flight() -> Non
     assert near > far
 
 
-def test_role_drive_potential_falls_back_without_a_landing_point() -> None:
+def test_role_drive_potential_targets_the_ball_without_a_landing_point() -> None:
     env = RoleDriveEnv(learner_id="cb1")
     env.reset(seed=0)
     state = env.play.state
     state.ball.status = BallStatus.IN_FLIGHT
     state.ball.target = None
-    target_id = defender_target(env.play, env.learner_id)
-    distance = float(
-        np.linalg.norm(
-            state.player(env.learner_id).position - state.player(target_id).position
-        )
-    )
+    state.ball.position = vec2(70.0, 44.0)
+    defender = state.player("cb1")
+    defender.position = vec2(60.0, 44.0)
 
     assert env._potential(state) == pytest.approx(
-        defender_potential(distance, env.reward_config.shaping_scale)
+        defender_potential(10.0, env.reward_config.shaping_scale)
     )
 
 

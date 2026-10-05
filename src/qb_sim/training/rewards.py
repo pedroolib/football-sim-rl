@@ -161,10 +161,16 @@ def receiver_separation_potential(separation: float, scale: float = 5.0) -> floa
 
 
 def defender_drive_reward(
-    result: PlayResult, config: DriveRewardConfig, goal_line: float = 100.0
+    result: PlayResult,
+    config: DriveRewardConfig,
+    goal_line: float = 100.0,
+    interception_bonus: float = 0.0,
 ) -> float:
-    """Zero-sum defender reward for one finished drive play."""
-    return -drive_result_reward(result, config, goal_line=goal_line)
+    """Zero-sum defender reward plus an optional ball-hawk interception bonus."""
+    reward = -drive_result_reward(result, config, goal_line=goal_line)
+    if result.outcome is PlayOutcome.INTERCEPTION:
+        reward += interception_bonus
+    return float(reward)
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +181,7 @@ class DefenderRewardConfig:
     shaping: bool = True
     shaping_gamma: float = 0.99
     shaping_scale: float = 10.0
+    interception_bonus: float = 2.0
 
 
 def defender_potential(distance: float, scale: float = 10.0) -> float:

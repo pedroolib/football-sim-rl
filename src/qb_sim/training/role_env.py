@@ -499,7 +499,10 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
             los_before = self.drive.state.los
             result = self.drive.advance(self.play)
             reward = defender_drive_reward(
-                result, self.reward_config.terminal, goal_line=self.goal_line
+                result,
+                self.reward_config.terminal,
+                goal_line=self.goal_line,
+                interception_bonus=self.reward_config.interception_bonus,
             )
             self.play_history.append(
                 {
@@ -570,9 +573,9 @@ class RoleDriveEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def _potential(self, state) -> float:
         ball = state.ball
-        if ball.status is BallStatus.IN_FLIGHT and ball.target is not None:
+        if ball.status is BallStatus.IN_FLIGHT:
             distance = float(
-                np.linalg.norm(state.player(self.learner_id).position - ball.target)
+                np.linalg.norm(state.player(self.learner_id).position - ball.position)
             )
             return defender_potential(distance, self.reward_config.shaping_scale)
         target_id = defender_target(self.play, self.learner_id)

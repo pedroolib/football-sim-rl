@@ -326,3 +326,25 @@ def test_defender_drive_reward_keeps_zero_sum_with_progress_shaping() -> None:
     )
     plain = -drive_result_reward(result, DriveRewardConfig(progress_scale=0.0))
     assert defender_drive_reward(result, config) != pytest.approx(plain)
+
+
+def test_defender_drive_reward_adds_the_interception_bonus() -> None:
+    result = PlayResult(
+        outcome=PlayOutcome.INTERCEPTION,
+        spot=40.0,
+        yards=0.0,
+        first_down=False,
+        touchdown=False,
+        drive_over=True,
+        end_reason="interception",
+        points=0.0,
+        throw_distance=12.0,
+    )
+    config = DriveRewardConfig(progress_scale=0.0)
+
+    assert defender_drive_reward(result, config, interception_bonus=2.0) == pytest.approx(
+        -drive_result_reward(result, config) + 2.0
+    )
+    assert defender_drive_reward(result, config) == pytest.approx(
+        -drive_result_reward(result, config)
+    )
