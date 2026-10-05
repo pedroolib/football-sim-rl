@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from qb_sim.agents.base import BaseAgent
 from qb_sim.agents.loop import build_rule_agents
 from qb_sim.agents.rule_controllers import HeuristicQuarterback
 from qb_sim.engine.entities import PlayOutcome
@@ -93,20 +94,28 @@ def collect_drive_demonstrations(
     drive_config: DriveConfig | None = None,
     randomization: AdaptationRanges | None = None,
     curriculum_progress: float = 1.0,
+    quarterback: BaseAgent | None = None,
 ) -> DemonstrationSet:
-    """Run the rule QB inside a drive and record ``(observation, action)`` pairs."""
+    """Run the rule QB inside a drive and record ``(observation, action)`` pairs.
+
+    ``quarterback`` may inject an alternative controller (e.g. the scrambling
+    archetype); by default the heuristic rule QB provides the demonstrations.
+    """
     chosen = scenario if scenario is not None else get_scenario("rushed")
     env = QBDriveEnv(chosen, drive_config=drive_config, randomization=randomization)
     env.set_curriculum_progress(curriculum_progress)
-    quarterback = HeuristicQuarterback("qb", chosen.config)
+    controller = (
+        quarterback if quarterback is not None else HeuristicQuarterback("qb", chosen.config)
+    )
     observations: list[np.ndarray] = []
     actions: list[np.ndarray] = []
     for episode in range(episodes):
         _observation, _ = env.reset(seed=seed_start + episode)
-        quarterback.set_config(env.active_config)
+        if hasattr(controller, "set_config"):
+            controller.set_config(env.active_config)
         terminated = truncated = False
         while not (terminated or truncated):
-            engine_action = quarterback.decide(env.play.state)
+            engine_action = controller.decide(env.play.state)
             action = (
                 encode_engine_action(engine_action)
                 if engine_action is not None

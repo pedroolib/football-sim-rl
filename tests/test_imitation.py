@@ -217,6 +217,49 @@ def test_role_drive_demonstrations_have_expected_shapes() -> None:
     assert dataset.actions.shape[1] == 2
 
 
+class _SpyQuarterback:
+    def __init__(self) -> None:
+        self.decide_calls = 0
+        self.configs: list = []
+
+    def set_config(self, config) -> None:
+        self.configs.append(config)
+
+    def decide(self, state):
+        self.decide_calls += 1
+        return None
+
+
+def test_collect_drive_demonstrations_uses_the_injected_quarterback() -> None:
+    spy = _SpyQuarterback()
+
+    dataset = collect_drive_demonstrations(
+        get_scenario("rushed"), episodes=1, seed_start=0, quarterback=spy
+    )
+
+    assert spy.decide_calls > 0
+    assert len(spy.configs) == 1
+    assert dataset.observations.shape[1] == DRIVE_OBSERVATION_SIZE
+    assert dataset.actions.shape[1] == ACTION_SIZE
+    assert len(dataset.observations) == len(dataset.actions)
+
+
+def test_scrambler_drive_demonstrations_include_forward_runs() -> None:
+    from qb_sim.agents.rule_controllers import ScramblingQuarterback
+
+    scenario = get_scenario("rushed")
+
+    dataset = collect_drive_demonstrations(
+        scenario,
+        episodes=3,
+        seed_start=0,
+        quarterback=ScramblingQuarterback("qb", scenario.config),
+    )
+
+    forward_runs = (dataset.actions[:, 0] > 0.5) & (dataset.actions[:, 5] < 0.0)
+    assert forward_runs.any()
+
+
 def test_mover_behavior_cloning_loads_weights_into_a_two_action_policy() -> None:
     pytest.importorskip("stable_baselines3")
     from stable_baselines3 import PPO

@@ -446,6 +446,75 @@ def test_curriculum_callback_maps_progress_to_phase() -> None:
         env.close()
 
 
+def test_ppo_config_defaults_to_no_scrambler_mixture() -> None:
+    assert PPOConfig().imitation_scrambler_episodes == 0
+
+
+def test_cli_parses_scrambler_imitation_episodes(monkeypatch) -> None:
+    from qb_sim.training import train as train_module
+
+    captured: dict = {}
+
+    def fake_train(config, resume=None):
+        captured["config"] = config
+        return None, "fake-final.zip"
+
+    monkeypatch.setattr(train_module, "train", fake_train)
+
+    train_module.main(["--imitation-scrambler-episodes", "7"])
+
+    assert captured["config"].imitation_scrambler_episodes == 7
+
+
+def test_drive_training_mixes_scrambler_demonstrations(tmp_path, monkeypatch) -> None:
+    from qb_sim.agents.rule_controllers import ScramblingQuarterback
+    from qb_sim.training import train as train_module
+
+    calls: list[dict] = []
+    real_collect = train_module.collect_drive_demonstrations
+
+    def spy_collect(*args, **kwargs):
+        dataset = real_collect(*args, **kwargs)
+        calls.append({"kwargs": kwargs, "dataset": dataset})
+        return dataset
+
+    monkeypatch.setattr(train_module, "collect_drive_demonstrations", spy_collect)
+
+    config = PPOConfig(
+        run_name="scrambler-mix-run",
+        env_kind="drive",
+        scenario="rushed",
+        total_timesteps=64,
+        seed=3,
+        n_steps=32,
+        batch_size=16,
+        n_epochs=1,
+        checkpoint_freq=1000,
+        eval_freq=1000,
+        eval_episodes=1,
+        attempt_decay_steps=64,
+        imitation_episodes=1,
+        imitation_scrambler_episodes=1,
+        imitation_epochs=2,
+        output_dir=str(tmp_path),
+        device="cpu",
+    )
+
+    train(config)
+
+    assert len(calls) == 2
+    scrambler_calls = [
+        call
+        for call in calls
+        if isinstance(call["kwargs"].get("quarterback"), ScramblingQuarterback)
+    ]
+    assert len(scrambler_calls) == 1
+    assert scrambler_calls[0]["kwargs"]["seed_start"] == config.seed + 10_000
+    metadata = json.loads((tmp_path / "scrambler-mix-run" / "config.json").read_text())
+    mixed_samples = sum(len(call["dataset"].observations) for call in calls)
+    assert metadata["imitation_samples"] == mixed_samples
+
+
 def test_build_opponents_supports_rule_agents() -> None:
     from qb_sim.agents.rule_controllers import HeuristicQuarterback
     from qb_sim.training.train import build_opponents

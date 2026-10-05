@@ -314,3 +314,62 @@ class HeuristicQuarterback(BaseAgent):
         if length == 0.0:
             return Move(direction=vec2(1.0, 0.0))
         return Move(direction=away / length)
+
+
+class ScramblingQuarterback(HeuristicQuarterback):
+    """Run when no receiver is open, scrambling first under immediate pressure."""
+
+    def __init__(
+        self,
+        player_id: str,
+        config: SimulationConfig,
+        open_threshold: float = 2.5,
+        throw_after_seconds: float = 2.0,
+        min_throw_seconds: float = 0.5,
+        run_after_seconds: float = 1.2,
+        sideline_margin: float = 3.0,
+    ) -> None:
+        super().__init__(
+            player_id,
+            config,
+            open_threshold=open_threshold,
+            throw_after_seconds=throw_after_seconds,
+            min_throw_seconds=min_throw_seconds,
+        )
+        self._run_after_seconds = run_after_seconds
+        self._sideline_margin = sideline_margin
+
+    def act(self, observation: QuarterbackObservation) -> Move | Throw | None:
+        if observation.ball_status is not BallStatus.HELD:
+            return None
+        routes_developed = observation.elapsed_seconds >= self._min_throw_seconds
+        best = self._openest_receiver(observation)
+        if routes_developed and best is not None:
+            receiver, separation = best
+            deadline_expired = observation.elapsed_seconds >= self._throw_after_seconds
+            if separation >= self._open_threshold or deadline_expired:
+                return self._throw_to(observation, receiver)
+        if observation.elapsed_seconds >= self._run_after_seconds:
+            return self._run_action(observation)
+        return self._scramble_or_none(observation)
+
+    def _run_action(self, observation: QuarterbackObservation) -> Move:
+        direction = vec2(1.0, 0.0)
+        if observation.defenders:
+            nearest = min(
+                observation.defenders,
+                key=lambda defender: distance(defender.position, observation.position),
+            )
+            offset = observation.position - nearest.position
+            length = float(np.linalg.norm(offset))
+            if 0.0 < length < 2.0:
+                direction = direction + offset / length * 0.75
+        margin = self._sideline_margin
+        if observation.position[1] < margin:
+            direction = direction + vec2(0.0, 0.5)
+        elif observation.position[1] > self._config.field.width_yards - margin:
+            direction = direction + vec2(0.0, -0.5)
+        length = float(np.linalg.norm(direction))
+        if length == 0.0:
+            return Move(direction=vec2(1.0, 0.0))
+        return Move(direction=direction / length)

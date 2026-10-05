@@ -20,6 +20,7 @@ from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
+from qb_sim.agents.rule_controllers import ScramblingQuarterback
 from qb_sim.rules.drive import DriveConfig
 from qb_sim.rules.routes import ROUTE_OBSERVATION_ORDER
 from qb_sim.rules.scenarios import SCENARIOS, get_scenario
@@ -306,20 +307,38 @@ def train(config: PPOConfig, resume: str | None = None) -> tuple[PPO, Path]:
 
     imitation_loss: float | None = None
     imitation_samples = 0
-    if resume is None and config.imitation_episodes > 0:
+    imitation_requested = config.imitation_episodes > 0 or (
+        config.env_kind == "drive" and config.imitation_scrambler_episodes > 0
+    )
+    if resume is None and imitation_requested:
         if config.env_kind == "drive":
             randomization = AdaptationRanges() if config.randomize_config else None
-            datasets = [
-                collect_drive_demonstrations(
-                    get_scenario(name),
-                    episodes=config.imitation_episodes,
-                    seed_start=config.seed,
-                    drive_config=DriveConfig(),
-                    randomization=randomization,
-                    curriculum_progress=1.0,
+            datasets = []
+            if config.imitation_episodes > 0:
+                datasets.extend(
+                    collect_drive_demonstrations(
+                        get_scenario(name),
+                        episodes=config.imitation_episodes,
+                        seed_start=config.seed,
+                        drive_config=DriveConfig(),
+                        randomization=randomization,
+                        curriculum_progress=1.0,
+                    )
+                    for name in scenarios
                 )
-                for name in scenarios
-            ]
+            if config.imitation_scrambler_episodes > 0:
+                datasets.extend(
+                    collect_drive_demonstrations(
+                        get_scenario(name),
+                        episodes=config.imitation_scrambler_episodes,
+                        seed_start=config.seed + 10_000,
+                        drive_config=DriveConfig(),
+                        randomization=randomization,
+                        curriculum_progress=1.0,
+                        quarterback=ScramblingQuarterback("qb", get_scenario(name).config),
+                    )
+                    for name in scenarios
+                )
         elif config.env_kind == "role_play":
             datasets = [
                 collect_role_play_demonstrations(
@@ -493,6 +512,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--eval-episodes", type=int, default=defaults.eval_episodes)
     parser.add_argument("--attempt-decay-steps", type=int, default=defaults.attempt_decay_steps)
     parser.add_argument("--imitation-episodes", type=int, default=defaults.imitation_episodes)
+    parser.add_argument(
+        "--imitation-scrambler-episodes",
+        type=int,
+        default=defaults.imitation_scrambler_episodes,
+        help="Extra scrambling-QB demonstrations mixed into drive BC (0 disables).",
+    )
     parser.add_argument("--imitation-epochs", type=int, default=defaults.imitation_epochs)
     parser.add_argument(
         "--imitation-learning-rate",
@@ -536,6 +561,7 @@ def main(argv: list[str] | None = None) -> None:
         eval_episodes=args.eval_episodes,
         attempt_decay_steps=args.attempt_decay_steps,
         imitation_episodes=args.imitation_episodes,
+        imitation_scrambler_episodes=args.imitation_scrambler_episodes,
         imitation_epochs=args.imitation_epochs,
         imitation_learning_rate=args.imitation_learning_rate,
         output_dir=args.output_dir,

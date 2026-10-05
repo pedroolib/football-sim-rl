@@ -38,6 +38,7 @@ class PPOConfig:
     eval_episodes: int = 20
     attempt_decay_steps: int = 1
     imitation_episodes: int = 300
+    imitation_scrambler_episodes: int = 0
     imitation_epochs: int = 200
     imitation_learning_rate: float = 1e-3
     output_dir: str = "runs"
