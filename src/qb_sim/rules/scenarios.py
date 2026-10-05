@@ -85,7 +85,7 @@ STAGE_B_CONFIG = replace(
     rusher_starts=((30.0, 29.0),),
     carrier_fatigue_per_second=0.12,
     carrier_min_speed_factor=0.65,
-    qb_snap_depth_yards=2.0,
+    qb_snap_depth_yards=0.0,
     qb_run_speed_factor=0.6,
 )
 STAGE_B_SCENARIO = Scenario(
