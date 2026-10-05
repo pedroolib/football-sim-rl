@@ -34,7 +34,7 @@ from qb_sim.training.policy import (
     SUPPORTED_RECEIVER_SIZES,
 )
 from qb_sim.ui import theme
-from qb_sim.ui.menu import ModelMenu, ModelOption, ParameterMenu
+from qb_sim.ui.menu import ModelMenu, ParameterMenu
 from qb_sim.ui.rendering import (
     draw_ball,
     draw_field,
@@ -120,6 +120,7 @@ class TrainingDashboard:
         self._parameter_menu: ParameterMenu | None = parameter_menu
         self._model_menu: ModelMenu | None = model_menu
         self._composition_policies: dict = {}
+        self._composition_dirty = False
         if env_kind == "drive":
             self._policy: LearnerPolicy | None = rule_drive_quarterback_policy(
                 self.scenario.config
@@ -292,6 +293,7 @@ class TrainingDashboard:
     def _reload_composition(self) -> None:
         self._composition_policies = self._build_composition_policies()
         self._rebuild_composition()
+        self._composition_dirty = False
 
     @property
     def checkpoint_path(self) -> Path | None:
@@ -464,14 +466,20 @@ class TrainingDashboard:
             elif event.type == pygame.KEYDOWN:
                 if self._menu_mode is not None:
                     if event.key == pygame.K_ESCAPE:
-                        self._menu_mode = None
-                        self._repeat_timers.clear()
+                        self._close_menu()
                     elif event.key == pygame.K_m and self.env_kind == "composition":
+                        self._close_menu()
                         self._menu_mode = "params"
-                        self._repeat_timers.clear()
                     elif event.key == pygame.K_n and self.env_kind == "composition":
+                        self._close_menu()
                         self._menu_mode = "models"
-                        self._repeat_timers.clear()
+                    elif (
+                        event.key in (pygame.K_RETURN, pygame.K_KP_ENTER)
+                        and self._menu_mode == "models"
+                    ):
+                        if self._model_menu is not None:
+                            if self._model_menu.toggle() == "select":
+                                self._composition_dirty = True
                     elif event.key in _MENU_KEYS:
                         self._apply_menu_key(event.key)
                         self._repeat_timers[event.key] = -MENU_REPEAT_DELAY
@@ -529,6 +537,13 @@ class TrainingDashboard:
                 self._rebuild_composition()
         elif self._menu_mode == "models" and self._model_menu is not None:
             self._model_menu.cycle(self._model_menu.role(), direction)
+            self._composition_dirty = True
+
+    def _close_menu(self) -> None:
+        """Close the overlay, reloading the composition once if it changed."""
+        self._menu_mode = None
+        self._repeat_timers.clear()
+        if self._composition_dirty:
             self._reload_composition()
 
     def _draw_menu(self) -> None:
@@ -550,14 +565,26 @@ class TrainingDashboard:
             selected = self._parameter_menu.index
         elif self._model_menu is not None:
             title = "MODELOS"
-            for role in self._model_menu.options:
-                label = ModelMenu.display(self._model_menu.current(role))
-                rows.append((role, label if len(label) <= 20 else label[:18] + "…", None, None))
-            selected = self._model_menu.index
+            for kind, role, group, option in self._model_menu.visible_rows():
+                if kind == "role":
+                    label = ModelMenu.display(self._model_menu.current(role))
+                    value = label if len(label) <= 26 else label[:24] + "…"
+                    rows.append((role, value, None, None))
+                elif kind == "folder" and group is not None:
+                    marker = (
+                        "[-]"
+                        if (role, group) in self._model_menu.expanded_folders
+                        else "[+]"
+                    )
+                    count = len(dict(self._model_menu.folders(role))[group])
+                    rows.append((f"   {marker} {group}/", str(count), None, None))
+                elif option is not None:
+                    marker = "*" if option == self._model_menu.current(role) else " "
+                    size = str(option.observation_size) if option.observation_size else "—"
+                    rows.append((f"      {marker} {option.label}", size, None, None))
+            selected = self._model_menu.cursor
         else:
             return
-
-        model_rows = title == "MODELOS" and self._model_menu is not None
 
         dim = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
         dim.fill((4, 8, 12, 150))
@@ -565,7 +592,7 @@ class TrainingDashboard:
 
         row_height = 30
         visible_rows = 14
-        start = max(0, min(selected - visible_rows // 2, max(0, len(rows) - visible_rows)))
+        start = self._scroll_start(len(rows), selected, visible_rows)
         window = rows[start : start + visible_rows]
         card_width = 780
         card_height = (len(window) + 2) * row_height + 30
@@ -583,7 +610,10 @@ class TrainingDashboard:
 
         title_image = self.font.render(title, True, MENU_TEXT)
         self.screen.blit(title_image, (card.x + 24, card.y + 16))
-        hint = "Arriba/Abajo mover · Izq/Der ajustar (mantener) · M/N cambiar · Esc cerrar"
+        if self._menu_mode == "models":
+            hint = "↑↓ mover · ←→ modelo · Enter abrir/elegir · M/N · Esc cerrar"
+        else:
+            hint = "Arriba/Abajo mover · Izq/Der ajustar (mantener) · M/N cambiar · Esc cerrar"
         hint_image = self.font.render(hint, True, MENU_MUTED)
         self.screen.blit(
             hint_image,
@@ -599,11 +629,10 @@ class TrainingDashboard:
 
         for row, (name, value_text, numeric, bounds) in enumerate(window):
             index = start + row
-            row_width = 330 if model_rows else card.width - 28
             row_rect = pygame.Rect(
                 card.x + 14,
                 card.y + 56 + row * row_height,
-                row_width,
+                card.width - 28,
                 row_height - 4,
             )
             if index == selected:
@@ -641,9 +670,6 @@ class TrainingDashboard:
                 value_x = row_rect.right - value_image.get_width() - 22
             self.screen.blit(value_image, (value_x, row_rect.y + 6))
 
-        if model_rows:
-            self._draw_model_folders(card)
-
         if len(rows) > visible_rows:
             track = pygame.Rect(card.right - 12, card.y + 56, 4, len(window) * row_height)
             pygame.draw.rect(self.screen, (44, 54, 68), track, border_radius=2)
@@ -664,71 +690,6 @@ class TrainingDashboard:
             return 0
         start = current - capacity // 2
         return max(0, min(start, total - capacity))
-
-    def _draw_model_folders(self, card: pygame.Rect) -> None:
-        """Folder-grouped list of the focused role's models, with observation sizes.
-
-        The list scrolls to keep the selected model visible, so every
-        discovered model can be reached with the arrow keys.
-        """
-        if self._model_menu is None:
-            return
-        role = self._model_menu.role()
-        current = self._model_menu.current(role)
-        panel = pygame.Rect(card.x + 360, card.y + 52, card.width - 384, card.height - 64)
-        pygame.draw.rect(self.screen, MENU_ROW, panel, border_radius=10)
-        pygame.draw.rect(self.screen, (40, 52, 68), panel, 1, border_radius=10)
-        lines: list[tuple[str, str, ModelOption | None]] = []
-        for group, options in self._model_menu.folders(role):
-            lines.append(("header", group, None))
-            for option in options:
-                lines.append(("option", group, option))
-        line_height = 21
-        strip = 22
-        capacity = max(1, (panel.height - strip - 8) // line_height)
-        current_line = next(
-            (
-                index
-                for index, (kind, _, option) in enumerate(lines)
-                if kind == "option" and option == current
-            ),
-            0,
-        )
-        start = self._scroll_start(len(lines), current_line, capacity)
-        window = lines[start : start + capacity]
-        y = panel.y + strip
-        for kind, group, option in window:
-            if kind == "header":
-                header = self.font_small.render(f"{group}/", True, MENU_MUTED)
-                self.screen.blit(header, (panel.x + 12, y + 2))
-                y += line_height
-                continue
-            is_current = option == current
-            label_image = self.font_mono.render(
-                option.label,
-                True,
-                MENU_ACCENT if is_current else MENU_TEXT,
-            )
-            size_text = str(option.observation_size) if option.observation_size else "—"
-            size_image = self.font_small.render(size_text, True, MENU_MUTED)
-            self.screen.blit(label_image, (panel.x + 24, y))
-            self.screen.blit(
-                size_image,
-                (panel.right - 16 - size_image.get_width(), y + 2),
-            )
-            y += line_height
-        if len(lines) > capacity:
-            marks = []
-            if start > 0:
-                marks.append("▲")
-            marks.append(f"{current_line + 1}/{len(lines)}")
-            if start + capacity < len(lines):
-                marks.append("▼")
-            status = self.font_small.render(" ".join(marks), True, MENU_MUTED)
-            self.screen.blit(
-                status,
-                (panel.right - 12 - status.get_width(), panel.y + 4),
-            )
 
     def run(self) -> None:
         """Run the dashboard until the window closes."""

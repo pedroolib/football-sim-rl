@@ -294,3 +294,45 @@ def test_choose_compatible_honors_the_hint_when_sizes_match() -> None:
     )
     assert menu.choose_compatible("wr1", (35,), hints=("other",))
     assert menu.current("wr1").label == "other"
+
+
+def test_model_menu_tree_starts_collapsed_and_toggles() -> None:
+    menu = ModelMenu(
+        {
+            role: [ModelOption("reglas", None, group="reglas")]
+            for role in ModelMenu.ROLES
+        }
+    )
+    assert [row[0] for row in menu.visible_rows()] == ["role"] * len(ModelMenu.ROLES)
+    assert menu.role() == "qb"
+
+    assert menu.toggle() == "expand"
+    kinds = [row[0] for row in menu.visible_rows()]
+    assert kinds[:3] == ["role", "folder", "role"]
+
+    menu.move(1)
+    assert menu.focused_row()[0] == "folder"
+    assert menu.toggle() == "expand"
+    assert menu.visible_rows()[2][0] == "option"
+
+    menu.move(1)
+    assert menu.toggle() == "select"
+    assert menu.current("qb").label == "reglas"
+    menu.move(-1)
+    assert menu.focused_row()[0] == "folder"
+    assert menu.toggle() == "expand"
+    assert [row[0] for row in menu.visible_rows()][:3] == ["role", "folder", "role"]
+
+
+def test_model_menu_move_clamps_the_cursor() -> None:
+    menu = ModelMenu(
+        {
+            role: [ModelOption("reglas", None, group="reglas")]
+            for role in ModelMenu.ROLES
+        }
+    )
+    menu.move(-5)
+    assert menu.cursor == 0
+    menu.move(100)
+    assert menu.cursor == len(ModelMenu.ROLES) - 1
+    assert menu.role() == ModelMenu.ROLES[-1]

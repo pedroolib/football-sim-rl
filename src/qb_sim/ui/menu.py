@@ -221,7 +221,9 @@ class ModelMenu:
     def __init__(self, options: dict[str, list[ModelOption]]) -> None:
         self.options = options
         self.selection = {role: 0 for role in options}
-        self.index = 0
+        self.cursor = 0
+        self.expanded_roles: set[str] = set()
+        self.expanded_folders: set[tuple[str, str]] = set()
 
     @classmethod
     def discover(cls, runs_dir: str | Path = "runs") -> "ModelMenu":
@@ -264,13 +266,64 @@ class ModelMenu:
                 options["ru1"].append(ModelOption(run.name, model_path, size, group))
         return cls(options)
 
+    def visible_rows(self) -> list[tuple[str, str, str | None, ModelOption | None]]:
+        """Tree rows as ``(kind, role, group, option)``.
+
+        Roles and folders start collapsed and only expand through
+        :meth:`toggle`, so the list stays short until the user asks.
+        """
+        rows: list[tuple[str, str, str | None, ModelOption | None]] = []
+        for role in self.options:
+            rows.append(("role", role, None, None))
+            if role not in self.expanded_roles:
+                continue
+            for group, options in self.folders(role):
+                rows.append(("folder", role, group, None))
+                if (role, group) not in self.expanded_folders:
+                    continue
+                for option in options:
+                    rows.append(("option", role, group, option))
+        return rows
+
+    def focused_row(self) -> tuple[str, str, str | None, ModelOption | None]:
+        """Row under the cursor, clamped to the visible tree."""
+        rows = self.visible_rows()
+        if not rows:
+            return ("role", next(iter(self.options)), None, None)
+        return rows[min(self.cursor, len(rows) - 1)]
+
+    def toggle(self) -> str:
+        """Expand or collapse the focused row, or select the focused model.
+
+        Returns ``"expand"``, ``"select"``, or ``"none"``.
+        """
+        kind, role, group, option = self.focused_row()
+        if kind == "role":
+            if role in self.expanded_roles:
+                self.expanded_roles.discard(role)
+            else:
+                self.expanded_roles.add(role)
+            return "expand"
+        if kind == "folder" and group is not None:
+            key = (role, group)
+            if key in self.expanded_folders:
+                self.expanded_folders.discard(key)
+            else:
+                self.expanded_folders.add(key)
+            return "expand"
+        if kind == "option" and option is not None:
+            self.selection[role] = self.options[role].index(option)
+            return "select"
+        return "none"
+
     def role(self) -> str:
-        """Currently focused role."""
-        return list(self.options)[self.index]
+        """Role owning the focused row."""
+        return self.focused_row()[1]
 
     def move(self, direction: int) -> None:
-        """Move the role selection."""
-        self.index = max(0, min(self.index + direction, len(self.options) - 1))
+        """Move the tree cursor."""
+        rows = self.visible_rows()
+        self.cursor = max(0, min(self.cursor + direction, len(rows) - 1))
 
     def labels(self, role: str) -> list[str]:
         """Available labels for a role."""

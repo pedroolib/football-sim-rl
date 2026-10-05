@@ -365,3 +365,64 @@ def test_scroll_start_keeps_the_current_line_visible() -> None:
     assert TrainingDashboard._scroll_start(15, 14, 9) == 6
     assert TrainingDashboard._scroll_start(15, 7, 9) == 3
     assert TrainingDashboard._scroll_start(5, 4, 9) == 0
+
+
+def test_dashboard_model_menu_defers_reloads_until_closing(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    calls: list[int] = []
+
+    def fake_reload() -> None:
+        calls.append(1)
+        dashboard._composition_dirty = False
+
+    dashboard._reload_composition = fake_reload
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n)])
+        for _ in range(3):
+            dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)])
+        assert calls == []
+        assert dashboard._composition_dirty
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE)])
+        assert calls == [1]
+        assert not dashboard._composition_dirty
+    finally:
+        dashboard.close()
+
+
+def test_dashboard_model_menu_enter_expands_and_selects(dummy_video, tmp_path) -> None:
+    menu, parameters = _composition_menus()
+    dashboard = TrainingDashboard(
+        tmp_path,
+        env_kind="composition",
+        panels=1,
+        screen_size=(640, 360),
+        model_menu=menu,
+        parameter_menu=parameters,
+    )
+    enter = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN)
+    try:
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n)])
+        assert all(row[0] == "role" for row in menu.visible_rows())
+
+        dashboard._handle_events([enter])
+        assert any(row[0] == "folder" for row in menu.visible_rows())
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)])
+        dashboard._handle_events([enter])
+        assert any(row[0] == "option" for row in menu.visible_rows())
+
+        dashboard._handle_events([pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)])
+        dashboard._handle_events([enter])
+        assert menu.current("qb").label == "reglas"
+        assert dashboard._composition_dirty
+    finally:
+        dashboard.close()
