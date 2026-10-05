@@ -116,13 +116,13 @@ def test_receiver_policy_forwards_the_start_override() -> None:
     assert model.observation[30] == pytest.approx(1.0)
 
 
-def test_defender_policy_builds_the_27_float_observation() -> None:
+def test_defender_policy_builds_the_31_float_observation() -> None:
     play = Play()
     model = _RecordingModel([0.0, 1.0])
     policy = DefenderPolicy(model, play.config, "cb1")
 
     action = policy(play.state, "wr1", DriveState(los=40.0))
 
-    assert model.observation_shape == (27,)
+    assert model.observation_shape == (31,)
     assert action is not None
     assert action.direction.tolist() == pytest.approx([0.0, 1.0])

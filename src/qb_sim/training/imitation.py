@@ -307,7 +307,7 @@ def collect_role_drive_demonstrations(
     opponents: Mapping[str, object] | None = None,
     drive_config: DriveConfig | None = None,
 ) -> DemonstrationSet:
-    """Run the rule defender and record ``(27-observation, 2-action)`` pairs."""
+    """Run the rule defender and record ``(31-observation, 2-action)`` pairs."""
     chosen = scenario if scenario is not None else get_scenario("stage_b")
     env = RoleDriveEnv(
         chosen,
