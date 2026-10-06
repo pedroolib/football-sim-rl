@@ -220,7 +220,8 @@ class TrainingDashboard:
         if self._model_menu is None:
             return
         if qb_model is not None:
-            self._model_menu.choose("qb", Path(qb_model).parent.name)
+            if not self._model_menu.choose_path("qb", qb_model):
+                self._model_menu.choose("qb", Path(qb_model).parent.name)
         else:
             self._model_menu.choose_compatible(
                 "qb",

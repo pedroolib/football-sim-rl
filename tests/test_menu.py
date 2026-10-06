@@ -356,3 +356,20 @@ def test_model_menu_focus_current_reveals_the_selected_model() -> None:
     kind, role, group, option = menu.focused_row()
     assert (kind, role, group) == ("option", "wr2", "wr")
     assert option == menu.current("wr2")
+
+
+def test_model_menu_offers_best_models_and_chooses_by_path(tmp_path) -> None:
+    run = tmp_path / "qb" / "drive" / "ep_v1"
+    (run / "best").mkdir(parents=True)
+    (run / "config.json").write_text(
+        json.dumps({"env_kind": "drive", "learner": "qb"}), encoding="utf-8"
+    )
+    (run / "final_model.zip").touch()
+    (run / "best" / "best_model.zip").touch()
+
+    menu = ModelMenu.discover(tmp_path)
+
+    assert menu.labels("qb") == ["reglas", "ep_v1", "ep_v1 (best)"]
+    assert menu.choose_path("qb", run / "best" / "best_model.zip")
+    assert menu.current("qb").path == run / "best" / "best_model.zip"
+    assert not menu.choose_path("qb", run / "missing.zip")

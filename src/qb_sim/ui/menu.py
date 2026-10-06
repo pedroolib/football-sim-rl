@@ -261,15 +261,24 @@ class ModelMenu:
             relative = run.parent.relative_to(root)
             group = "runs" if relative == Path(".") else relative.as_posix()
             if kind == "drive" and learner == "qb":
-                options["qb"].append(ModelOption(run.name, model_path, size, group))
+                roles = ("qb",)
             elif kind in ("role_play", "receiver_drive") and learner in ("wr1", "wr2"):
-                options["wr1"].append(ModelOption(run.name, model_path, size, group))
-                options["wr2"].append(ModelOption(run.name, model_path, size, group))
+                roles = ("wr1", "wr2")
             elif kind == "role_drive" and learner in ("cb1", "cb2"):
-                options["cb1"].append(ModelOption(run.name, model_path, size, group))
-                options["cb2"].append(ModelOption(run.name, model_path, size, group))
+                roles = ("cb1", "cb2")
             elif kind == "role_drive" and learner == "ru1":
-                options["ru1"].append(ModelOption(run.name, model_path, size, group))
+                roles = ("ru1",)
+            else:
+                continue
+            for role in roles:
+                options[role].append(ModelOption(run.name, model_path, size, group))
+            best_path = run / "best" / "best_model.zip"
+            if best_path.is_file():
+                best_size = model_observation_size(best_path)
+                for role in roles:
+                    options[role].append(
+                        ModelOption(f"{run.name} (best)", best_path, best_size, group)
+                    )
         return cls(options)
 
     def visible_rows(self) -> list[tuple[str, str, str | None, ModelOption | None]]:
@@ -364,6 +373,15 @@ class ModelMenu:
         """Select a model by label; return whether it exists."""
         for index, option in enumerate(self.options[role]):
             if option.label == label:
+                self.selection[role] = index
+                return True
+        return False
+
+    def choose_path(self, role: str, path: str | Path) -> bool:
+        """Select the option whose saved file matches ``path``."""
+        target = Path(path).resolve()
+        for index, option in enumerate(self.options[role]):
+            if option.path is not None and option.path.resolve() == target:
                 self.selection[role] = index
                 return True
         return False
