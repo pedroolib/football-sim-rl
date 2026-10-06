@@ -180,3 +180,18 @@ def test_build_opponents_rejects_empty_mixed_segments() -> None:
 
     with pytest.raises(ValueError, match="vacía"):
         train_module.build_opponents("role_drive", "stage_b", (("qb", "rules|"),))
+
+
+def test_mixed_policy_is_drive_aware_when_any_sub_policy_is() -> None:
+    class DriveAware:
+        drive_aware = True
+
+        def __call__(self, state, route, start=None, drive_state=None):
+            return None
+
+    class Plain:
+        def __call__(self, state, route, start=None):
+            return None
+
+    assert MixedPolicy((Plain(), DriveAware())).drive_aware is True
+    assert MixedPolicy((Plain(), Plain())).drive_aware is False

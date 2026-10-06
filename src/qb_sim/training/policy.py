@@ -88,6 +88,11 @@ class MixedPolicy:
         self._last_state: Any = None
         self._active: Any = None
 
+    @property
+    def drive_aware(self) -> bool:
+        """Whether any sub-policy needs the drive context to build its observation."""
+        return any(getattr(policy, "drive_aware", False) for policy in self.policies)
+
     def _active_policy(self, state: Any) -> Any:
         if state is not self._last_state:
             self._last_state = state
