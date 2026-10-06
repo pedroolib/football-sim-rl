@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from qb_sim.agents.base import BaseAgent
 from qb_sim.config import SimulationConfig
 from qb_sim.engine.actions import Move, Throw
 from qb_sim.engine.entities import PlayState
@@ -68,6 +69,48 @@ def _ensure_observation_size(
             f"{role}: el modelo {path} espera {actual} valores de observación; "
             f"tamaños soportados: {sizes}."
         )
+
+
+class MixedPolicy:
+    """Sample one frozen opponent policy per play from a mixture.
+
+    The engine creates a fresh ``PlayState`` for every play and mutates that
+    same object on each ``step``, so tracking the state object's identity lets
+    the mixture stick with one sub-policy for the whole play and resample on
+    the next one.
+    """
+
+    def __init__(self, policies: tuple[Any, ...], seed: int = 0) -> None:
+        if not policies:
+            raise ValueError("MixedPolicy necesita al menos una política")
+        self.policies = tuple(policies)
+        self._rng = np.random.default_rng(seed)
+        self._last_state: Any = None
+        self._active: Any = None
+
+    def _active_policy(self, state: Any) -> Any:
+        if state is not self._last_state:
+            self._last_state = state
+            self._active = self.policies[int(self._rng.integers(0, len(self.policies)))]
+        return self._active
+
+    def __call__(self, state: Any, *args: Any, **kwargs: Any) -> Any:
+        policy = self._active_policy(state)
+        if isinstance(policy, BaseAgent):
+            return policy.decide(state)
+        return policy(state, *args, **kwargs)
+
+    def set_config(self, config: SimulationConfig) -> None:
+        """Forward the episode config to every sub-policy that supports it."""
+        for policy in self.policies:
+            setter = getattr(policy, "set_config", None)
+            if setter is not None:
+                setter(config)
+
+    def reset(self) -> None:
+        """Forget the cached play so the next call samples a fresh sub-policy."""
+        self._last_state = None
+        self._active = None
 
 
 class PolicyQuarterback:

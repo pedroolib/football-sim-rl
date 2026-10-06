@@ -134,8 +134,10 @@ def effective_scenarios(config: PPOConfig) -> tuple[str, ...]:
 
 
 def build_opponents(env_kind: str, scenario_name: str, pairs) -> dict:
-    """Load frozen opponent policies with the context-aware adapters."""
+    """Load frozen opponent policies, mixing ``|``-separated paths per play."""
+    from qb_sim.agents.rule_controllers import HeuristicQuarterback
     from qb_sim.training.policy import (
+        MixedPolicy,
         load_defender_policy,
         load_drive_policy,
         load_policy,
@@ -144,21 +146,23 @@ def build_opponents(env_kind: str, scenario_name: str, pairs) -> dict:
 
     opponents: dict = {}
     for player_id, path in pairs:
-        if path == "rules":
-            from qb_sim.agents.rule_controllers import HeuristicQuarterback
-
-            opponents[player_id] = HeuristicQuarterback(
-                player_id,
-                get_scenario(scenario_name).config,
-            )
-            continue
-        if player_id == "qb":
-            loader = load_policy if env_kind == "passing" else load_drive_policy
-            opponents[player_id] = loader(path, scenario_name)
-        elif player_id in ("wr1", "wr2"):
-            opponents[player_id] = load_receiver_policy(path, scenario_name, player_id)
-        else:
-            opponents[player_id] = load_defender_policy(path, scenario_name, player_id)
+        parts = [part.strip() for part in str(path).split("|")]
+        if any(not part for part in parts):
+            raise ValueError(f"ruta de oponente vacía para {player_id!r}: {path!r}")
+        built: list = []
+        for part in parts:
+            if part == "rules":
+                built.append(
+                    HeuristicQuarterback(player_id, get_scenario(scenario_name).config)
+                )
+            elif player_id == "qb":
+                loader = load_policy if env_kind == "passing" else load_drive_policy
+                built.append(loader(part, scenario_name))
+            elif player_id in ("wr1", "wr2"):
+                built.append(load_receiver_policy(part, scenario_name, player_id))
+            else:
+                built.append(load_defender_policy(part, scenario_name, player_id))
+        opponents[player_id] = built[0] if len(built) == 1 else MixedPolicy(tuple(built))
     return opponents
 
 
@@ -490,7 +494,7 @@ def main(argv: list[str] | None = None) -> None:
         metavar="ID=PATH",
         help=(
             "Frozen opponent policy, e.g. qb=runs/ppo/final_model.zip, or ID=rules "
-            "for a rule agent. Repeatable."
+            "for a rule agent. Mix several per play with ID=rules|runs/... . Repeatable."
         ),
     )
     parser.add_argument(
