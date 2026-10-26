@@ -1,25 +1,78 @@
-# AI-QB: teaching AI to play quarterback
+<div align="center">
+
+# AI-QB
+
+Reinforcement learning for a 2D football passing simulator
+
+<img src="docs/media/v7.gif" alt="PPO quarterback v7 completing passes on six parallel fields" width="720">
+
+<sub>Six parallel plays, PPO with a behavior-cloning warm start</sub>
+
+</div>
 
 A small, deterministic, headless-first 2D American football simulator built for reinforcement-learning research. One quarterback, two receivers and a defense (two cornerbacks plus a dedicated pass rusher) play on the same engine whether a human, a hand-written rule, or a trained policy is in control. A human aims with a Retro Bowl-style drag-and-release slingshot, and that `(angle, power)` gesture is exactly the action the learned agents output, so every comparison between human, rules and RL is fair.
 
-The project grew in stages: first a single play, then agents that learn each role, then full three-down drives. This README tells that story and then documents the code.
+The project grew in stages: first a single play, then agents that learn each role, then full three-down drives.
 
-## How it evolved
+## 1. Engine first
 
-**Engine first.** A deterministic `Play` (pass, catch, interception, tackle, sack, out of bounds, time limit) with throw accuracy that degrades with QB speed, defensive pressure and distance, driven by a seedable RNG. A rule-based quarterback, route-running receivers and man-coverage defenders form the baseline every learned agent has to beat.
+<img src="docs/media/engine.gif" alt="Human aiming a pass with the slingshot gesture" width="480" align="right">
 
-**The QB learns, and cheats twice.** The first PPO quarterbacks found loopholes in the reward function (200k steps each):
+A deterministic `Play` (pass, catch, interception, tackle, sack, out of bounds, time limit) with throw accuracy that degrades with QB speed, defensive pressure and distance, driven by a seedable RNG. Drag back, release, and the dotted arc shows where the ball goes.
 
-- *The coward* never threw. Running out the clock (-0.5) hurt less than an interception or sack (-1.0), so it ran backwards for six seconds every play.
-- *The spammer* threw at second 0.0 to nobody. After the clock penalty was raised, an incompletion (-0.2) became the cheapest outcome, so 100% of its passes were incomplete.
+<br clear="right">
 
-Three fixes killed both: a minimum time before throw-attempt shaping counts, a pass rusher that makes waiting costly, and a behavior-cloning warm start that imitates the rule QB before PPO fine-tuning begins. That produced the first presentable QB (`v7`), and with the rusher, `v8`, which learned to throw while scrambling to escape pressure (81% completions vs 55% for the rules at 100k steps in the `rushed` scenario).
+## 2. The rule-based baseline
 
-**Every role learns.** Receivers learn to run and catch from a pool of 8 routes sampled per play, cornerbacks learn coverage with potential-based reward shaping, and the pass rusher stays on behavior cloning because PPO degraded it. Training the roles against each other gave a retrained drive QB (`v12`) that struggles against teammates who learned their jobs, which is the open balance problem.
+<img src="docs/media/heuristic.gif" alt="Rule-based quarterback on the six-panel dashboard" width="480" align="left">
 
-**A reward hack that became a rule.** With a tiny learning rate (5e-6) the rusher turned into a pure ball hawk: 53.7% forced interceptions and 0.56% completions allowed without ever reaching the QB. It is documented as an experiment, and the engine now bars rushers from touching the ball in flight.
+Before any learning: route-running receivers, man-coverage defenders and a heuristic quarterback that throws when someone is open. Every learned agent has to beat it, and later it also becomes the teacher for behavior cloning.
 
-**Drives.** `rules/drive.py` chains plays into a drive (3 downs, 10 yards, line of scrimmage 25-50, goal line at x=100, touchdown = 7 points). The drive-aware QB `v11` observes 57 floats (down, distance, yards to goal, route one-hots) and beats the rule QB over the same 100 seeded drives: 30% vs 21% touchdowns, 2.10 vs 1.47 points per drive, 43.3% vs 32.2% third-down conversion, 37% vs 49% interceptions.
+<br clear="left">
+
+## 3. The QB learns, and cheats twice
+
+PPO quarterbacks found loopholes in the reward function (200k steps each):
+
+| The coward | The spammer |
+| :---: | :---: |
+| <img src="docs/media/coward.gif" width="380" alt="QB running backwards until time expires"> | <img src="docs/media/spammer.gif" width="380" alt="QB throwing instantly at nobody"> |
+| Never threw. Running out the clock (-0.5) hurt less than an interception or sack (-1.0), so it jogged backwards for six seconds. | Threw at second 0.0 to nobody. Once the clock penalty rose, an incompletion (-0.2) became the cheapest outcome: 100% incomplete. |
+
+Three fixes killed both: a minimum time before throw-attempt shaping counts, a pass rusher that makes waiting costly, and a behavior-cloning warm start that imitates the rule QB before PPO fine-tuning begins. That produced the first presentable QB (`v7`, the GIF at the top), and with the rusher, `v8`, which learned to throw while scrambling to escape pressure (81% completions vs 55% for the rules at 100k steps in the `rushed` scenario).
+
+## 4. Every role learns
+
+<img src="docs/media/cornerback.gif" alt="Learned cornerbacks covering receivers in drive view" width="480" align="right">
+
+Receivers learn to run and catch from a pool of 8 routes sampled per play, cornerbacks learn coverage with potential-based reward shaping, and the pass rusher stays on behavior cloning because PPO degraded it. Training the roles against each other gave a retrained drive QB (`v12`) that struggles against teammates who learned their jobs. That's the open balance problem.
+
+<br clear="right">
+
+<img src="docs/media/v12.gif" alt="QB v12 struggling against learned teammates" width="480" align="left">
+
+QB `v12` in this clip sits at 6% touchdowns (4 of 61 drives), a mid-evaluation snapshot rather than the final number.
+
+<br clear="left">
+
+## 5. A reward hack that became a rule
+
+<img src="docs/media/ballhawk.gif" alt="Rusher intercepting passes without reaching the QB" width="480" align="right">
+
+With a tiny learning rate (5e-6) the rusher turned into a pure ball hawk: 53.7% forced interceptions and 0.56% completions allowed without ever reaching the QB. It's documented as an experiment, and the engine now bars rushers from touching the ball in flight.
+
+<br clear="right">
+
+## 6. Drives
+
+`rules/drive.py` chains plays into a drive (3 downs, 10 yards, line of scrimmage 25-50, goal line at x=100, touchdown = 7 points). The drive-aware QB `v11` observes 57 floats (down, distance, yards to goal, route one-hots) and beats the rule QB over the same 100 seeded drives:
+
+| Metric | Rules | QB v11 |
+| --- | :---: | :---: |
+| Touchdowns | 21% | **30%** |
+| Points / drive | 1.47 | **2.10** |
+| 3rd-down conversion | 32.2% | **43.3%** |
+| Interceptions | 49% | **37%** |
 
 ## Bugs worth knowing about
 
@@ -34,6 +87,8 @@ Three fixes killed both: a minimum time before throw-attempt shaping counts, a p
 ## Reproducing the evaluations
 
 Numbers above come from 100 episodes on seeds 10000+, separate from training seeds, with Wilson 95% intervals (`scripts/evaluate_ppo.py`, `scripts/evaluate_drive.py`, `scripts/evaluate_stage_b.py`). Training runs live under `runs/`, which is gitignored, so checkpoints are not included in this repo.
+
+---
 
 # Reference
 
