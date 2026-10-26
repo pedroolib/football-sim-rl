@@ -1,8 +1,8 @@
 <div align="center">
 
-# AI-QB
+# Football Simulator RL
 
-Reinforcement learning for a 2D football passing simulator
+Reinforcement learning investigation for a 2D football passing simulator
 
 <img src="docs/media/v7.gif" alt="PPO quarterback v7 completing passes on six parallel fields" width="720">
 
