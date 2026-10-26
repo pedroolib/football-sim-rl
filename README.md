@@ -1,6 +1,43 @@
-# QB Simulation Core
+# AI-QB: teaching AI to play quarterback
 
-A small, deterministic, headless-first 2D American football passing simulator for reinforcement-learning research. The current prototype (M2) is playable by a human: 1 quarterback, 2 receivers running scripted routes, and 2 defenders in man coverage.
+A small, deterministic, headless-first 2D American football simulator built for reinforcement-learning research. One quarterback, two receivers and a defense (two cornerbacks plus a dedicated pass rusher) play on the same engine whether a human, a hand-written rule, or a trained policy is in control. A human aims with a Retro Bowl-style drag-and-release slingshot, and that `(angle, power)` gesture is exactly the action the learned agents output, so every comparison between human, rules and RL is fair.
+
+The project grew in stages: first a single play, then agents that learn each role, then full three-down drives. This README tells that story and then documents the code.
+
+## How it evolved
+
+**Engine first.** A deterministic `Play` (pass, catch, interception, tackle, sack, out of bounds, time limit) with throw accuracy that degrades with QB speed, defensive pressure and distance, driven by a seedable RNG. A rule-based quarterback, route-running receivers and man-coverage defenders form the baseline every learned agent has to beat.
+
+**The QB learns, and cheats twice.** The first PPO quarterbacks found loopholes in the reward function (200k steps each):
+
+- *The coward* never threw. Running out the clock (-0.5) hurt less than an interception or sack (-1.0), so it ran backwards for six seconds every play.
+- *The spammer* threw at second 0.0 to nobody. After the clock penalty was raised, an incompletion (-0.2) became the cheapest outcome, so 100% of its passes were incomplete.
+
+Three fixes killed both: a minimum time before throw-attempt shaping counts, a pass rusher that makes waiting costly, and a behavior-cloning warm start that imitates the rule QB before PPO fine-tuning begins. That produced the first presentable QB (`v7`), and with the rusher, `v8`, which learned to throw while scrambling to escape pressure (81% completions vs 55% for the rules at 100k steps in the `rushed` scenario).
+
+**Every role learns.** Receivers learn to run and catch from a pool of 8 routes sampled per play, cornerbacks learn coverage with potential-based reward shaping, and the pass rusher stays on behavior cloning because PPO degraded it. Training the roles against each other gave a retrained drive QB (`v12`) that struggles against teammates who learned their jobs, which is the open balance problem.
+
+**A reward hack that became a rule.** With a tiny learning rate (5e-6) the rusher turned into a pure ball hawk: 53.7% forced interceptions and 0.56% completions allowed without ever reaching the QB. It is documented as an experiment, and the engine now bars rushers from touching the ball in flight.
+
+**Drives.** `rules/drive.py` chains plays into a drive (3 downs, 10 yards, line of scrimmage 25-50, goal line at x=100, touchdown = 7 points). The drive-aware QB `v11` observes 57 floats (down, distance, yards to goal, route one-hots) and beats the rule QB over the same 100 seeded drives: 30% vs 21% touchdowns, 2.10 vs 1.47 points per drive, 43.3% vs 32.2% third-down conversion, 37% vs 49% interceptions.
+
+## Bugs worth knowing about
+
+| Bug | Fix |
+| --- | --- |
+| Behavior cloning assumed a tanh-squashed policy, but SB3 2.9 uses an unsquashed Gaussian, so aim collapsed | Raw-action targets plus BCE for the throw trigger |
+| Pure zero-sum reward degraded CB coverage (1.74 -> 2.65 yd) | Potential-based shaping `gamma*phi(s') - phi(s)`, invariant to the optimal policy |
+| WR behavior cloning drifted over time | Next-waypoint features in the observation |
+| Receiver start ignored the line-of-scrimmage shift in drives | Pass the shifted start to the receiver policy |
+| Evaluations without provenance or confidence intervals | Metadata envelope and Wilson 95% intervals on all proportions |
+
+## Reproducing the evaluations
+
+Numbers above come from 100 episodes on seeds 10000+, separate from training seeds, with Wilson 95% intervals (`scripts/evaluate_ppo.py`, `scripts/evaluate_drive.py`, `scripts/evaluate_stage_b.py`). Training runs live under `runs/`, which is gitignored, so checkpoints are not included in this repo.
+
+# Reference
+
+The sections below document the engine, environments and tooling.
 
 ## Coordinates
 
